@@ -308,3 +308,27 @@ export function buildReportHwpx(templateBuf, data) {
 export function buildSafetyLogHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data);
 }
+
+// 운영 전후 안전관리 체크리스트 — 점검책임자(안전관리자)·점검일자만 채움(체크는 수기)
+export async function buildChecklistHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  const days = (data.days || []).filter(d => d && d.date);
+  const year = data.year || 2026;
+  const first = days[0]?.date, last = days[days.length - 1]?.date;
+  const fmt = o => o ? `${year}년 ${o.m}월 ${o.d}일` : null;
+  const nm = data.safetyManager || "";
+
+  // 점검책임자 이름 (모든 "점검책임자 :   서명" 패턴, 뒤 공백/서명 보존)
+  if (nm) {
+    xml = xml.replace(/(점검책임자\s*:\s*)( {2,})(서명)/g, (m, a, sp, c) => `${a}${xmlEsc(nm)}${sp}${c}`);
+  }
+  // 운영 전 점검일자 = 시작일
+  if (first) xml = xml.replace(/점검일자:\s*2026년\s+월\s+일/, `점검일자: ${fmt(first)}`);
+  // 운영 후 날짜(단독 노드 "2026년 월 일") = 마지막일
+  if (last) xml = xml.replace(/<hp:t>2026년 월 일<\/hp:t>/, `<hp:t>${xmlEsc(fmt(last))}</hp:t>`);
+
+  zip.file(path, xml);
+  return packageHwpx(zip);
+}

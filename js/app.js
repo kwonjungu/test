@@ -3,7 +3,7 @@ import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, fmtDate, parseSchedule, programCore
 } from "./convert.js";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx } from "./hwpx.js";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx } from "./hwpx.js";
 import { NEIS_API_KEY } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
@@ -27,6 +27,7 @@ let hwpxTemplateBuf = null;    // 수령대장 hwpx 템플릿
 let equipTemplateBuf = null;   // 교구관리대장 hwpx 템플릿
 let reportTemplateBuf = null;  // 결과보고서 hwpx 템플릿
 let safetyTemplateBuf = null;  // 안전업무일지 hwpx 템플릿
+let checklistTemplateBuf = null; // 안전체크리스트 hwpx 템플릿
 let parsedBlocks = null;       // parseRoster 결과 (실명 포함)
 let lastClasses = null;        // 변환된 등록양식 결과
 let rosterBuf = null;
@@ -51,6 +52,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     .then(b => { reportTemplateBuf = b; }).catch(() => {});
   fetch("templates/안전업무일지양식.hwpx").then(r => r.arrayBuffer())
     .then(b => { safetyTemplateBuf = b; }).catch(() => {});
+  fetch("templates/안전체크리스트양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { checklistTemplateBuf = b; }).catch(() => {});
 
   // 시·도 드롭다운 채우기
   const sidoSel = $("schoolSido");
@@ -80,6 +83,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("downloadEquipBtn").addEventListener("click", onDownloadEquip);
   $("downloadReportBtn").addEventListener("click", onDownloadReport);
   $("downloadSafetyBtn").addEventListener("click", onDownloadSafety);
+  $("downloadChecklistBtn").addEventListener("click", onDownloadChecklist);
 });
 
 async function onSchoolSearch() {
@@ -285,6 +289,7 @@ async function onConvert() {
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
   $("downloadSafetyBtn").disabled = total === 0 || !safetyTemplateBuf;
+  $("downloadChecklistBtn").disabled = total === 0 || !checklistTemplateBuf;
   updateEquipBtn();   // 교구관리대장은 주강사 있을 때만 활성
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
@@ -432,6 +437,29 @@ async function onDownloadSafety() {
       year: 2026
     });
     triggerDownload(blob, `안전업무일지_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    if (i < lastClasses.length - 1) await sleep(350);
+  }
+}
+
+// 운영 전후 안전관리 체크리스트 hwpx — 점검책임자(안전관리자)·점검일자 채움
+async function onDownloadChecklist() {
+  if (!lastClasses || !lastClasses.length || !checklistTemplateBuf) return;
+  for (let i = 0; i < lastClasses.length; i++) {
+    const c = lastClasses[i];
+    const st = c.settings || {};
+    if (!st.safetyManager) {
+      const v = prompt(`[${c.className}] 안전체크리스트의 점검책임자(안전관리자) 성명을 입력하세요.`, "");
+      if (v === null) return;
+      st.safetyManager = v.trim();
+      const inp = document.querySelector(`#safety_${cssId(c.className)}`);
+      if (inp) inp.value = st.safetyManager;
+    }
+    const blob = await buildChecklistHwpx(checklistTemplateBuf, {
+      safetyManager: st.safetyManager || "",
+      days: st.days || [],
+      year: 2026
+    });
+    triggerDownload(blob, `안전체크리스트_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
