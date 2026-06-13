@@ -309,6 +309,40 @@ export function buildSafetyLogHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data);
 }
 
+// 안전관리 서약서 (3-2) — 캠프명/일시·장소/현장안전담당(안전관리자)/서약일 채움
+// 운영기관·PM 블록은 템플릿 고정값 유지. data: { program, school, safetyManager, days, year }
+export async function buildSafetyPledgeHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  const header = { xml: await zip.file("Contents/header.xml").async("string") };
+  const cloner = makeBlackCloner(header);
+  const days = (data.days || []).filter(d => d && d.date);
+  const year = data.year || 2026;
+  const first = days[0]?.date, last = days[days.length - 1]?.date;
+
+  // 드롭다운 메모/옵션 비우기 후 캠프명 채우기
+  xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
+  xml = xml.replace(/<hp:t>\((?:기본|특화|AI특화)\/[^<]*<\/hp:t>/g, "<hp:t></hp:t>");
+  if (data.program) xml = fillFieldBlack(xml, cloner, "프로그램명 작성", data.program);
+
+  // 일시/장소: "2026년 [ 00월 00일 ~ ] 2026년 [ 00월 00일 / 00초등학교]"
+  if (first) xml = fillFieldBlack(xml, cloner, " 00월 00일 ~ ", ` ${first.m}월 ${first.d}일 ~ `);
+  if (last) xml = fillFieldBlack(xml, cloner, " 00월 00일 / 00초등학교", ` ${last.m}월 ${last.d}일 / ${data.school || "00초등학교"}`);
+
+  // 현장안전담당(안전관리자) 성명 + 서명란
+  if (data.safetyManager) {
+    xml = fillFieldBlack(xml, cloner, "안전관리자 성명", data.safetyManager);
+    xml = fillFieldBlack(xml, cloner, "현장안전담당:   ", `현장안전담당:   ${data.safetyManager}   `);
+  }
+  // 서약일 = 첫 캠프일
+  if (first) xml = fillFieldBlack(xml, cloner, "2026. 00. 00.", `${year}. ${pad2(first.m)}. ${pad2(first.d)}.`);
+
+  zip.file(path, xml);
+  zip.file("Contents/header.xml", header.xml);
+  return packageHwpx(zip);
+}
+
 // 프로그램 운영 사례집 (붙임2 후기 모음) — 프로그램명/운영장소/운영일시 채움 (후기 본문은 수기)
 // data: { program, school, days:[{date:{m,d}, start, end}], year }
 export async function buildCaseBookHwpx(templateBuf, data) {
