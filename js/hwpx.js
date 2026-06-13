@@ -107,17 +107,23 @@ function makeBlackCloner(header) {
   const cache = {};
   return {
     get xml() { return header.xml; },
+    // 채워넣는 글자는 검정(#000000) + 11pt(height 1100)로 통일
     black(cid) {
       if (cache[cid]) return cache[cid];
       const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
       if (!m) return cid;
       const block = m[0];
       const color = block.match(/textColor="([^"]+)"/);
-      if (color && color[1].toUpperCase() === "#000000") { cache[cid] = cid; return cid; } // 이미 검정
+      const height = block.match(/\bheight="(\d+)"/);
+      const isBlack = color && color[1].toUpperCase() === "#000000";
+      const is11 = height && height[1] === "1100";
+      if (isBlack && is11) { cache[cid] = cid; return cid; }   // 이미 검정·11pt
       const newId = ++maxId;
       let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
       clone = color ? clone.replace(/textColor="[^"]+"/, 'textColor="#000000"')
                     : clone.replace(/(<hh:charPr id="\d+")/, '$1 textColor="#000000"');
+      clone = height ? clone.replace(/\bheight="\d+"/, 'height="1100"')
+                     : clone.replace(/(<hh:charPr id="\d+")/, '$1 height="1100"');
       header.xml = header.xml.replace(block, block + clone)
         .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
       cache[cid] = newId;
@@ -300,9 +306,27 @@ export function buildEquipmentLedgerHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data);
 }
 
-// 결과보고서 (보조강사 취합 서류) — 회차 블록을 일수에 맞게 확장/삭제 후 채움
+// 결과보고서 '4. 프로그램 추진 의견'의 주/보조/안전 라벨 단락 뒤에 AI 의견 단락 삽입
+// data.opinions = { 주강사, 보조강사, 안전관리자 } (없는 항목은 건너뜀)
+function fillReportOpinions(xml, cloner, data) {
+  const ops = data.opinions || {};
+  const labels = { "주강사": "(주강사 작성용)", "보조강사": "(보조강사 작성용)", "안전관리자": "(안전관리자 작성용)" };
+  let maxId = Math.max(...[...xml.matchAll(/<hp:p id="(\d+)"/g)].map(m => +m[1]), 0);
+  for (const role of Object.keys(labels)) {
+    const text = (ops[role] || "").trim();
+    if (!text) continue;
+    const black = cloner.black(20);   // 라벨과 동일 서식의 검정 본문
+    const re = new RegExp(`(<hp:p\\b[^>]*>(?:(?!</hp:p>)[\\s\\S])*?${rgEsc(labels[role])}(?:(?!</hp:p>)[\\s\\S])*?</hp:p>)`);
+    const para = `<hp:p id="${++maxId}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">` +
+      `<hp:run charPrIDRef="${black}"><hp:t>${xmlEsc(text)}</hp:t></hp:run></hp:p>`;
+    xml = xml.replace(re, `$1${para}`);
+  }
+  return xml;
+}
+
+// 결과보고서 (보조강사 취합 서류) — 회차 블록 확장/삭제 + (선택)추진의견 자동삽입
 export function buildReportHwpx(templateBuf, data) {
-  return buildPlaceholderHwpx(templateBuf, data, expandReportRounds);
+  return buildPlaceholderHwpx(templateBuf, data, expandReportRounds, fillReportOpinions);
 }
 
 // 안전관리 업무 활동 풀(30개) — 예시와 비슷한 톤/길이. 매번 랜덤 10개 사용.
@@ -402,8 +426,8 @@ export async function buildSafetyPledgeHwpx(templateBuf, data) {
   return packageHwpx(zip);
 }
 
-// 프로그램 운영 사례집 (붙임2 후기 모음) — 프로그램명/운영장소/운영일시 채움 (후기 본문은 수기)
-// data: { program, school, days:[{date:{m,d}, start, end}], year }
+// 프로그램 운영 사례집 (붙임2 후기 모음) — 프로그램명/운영장소/운영일시 채움
+// data: { program, school, days, year, reviews:{학생,학부모,강사} }  (reviews 없으면 예시 유지)
 export async function buildCaseBookHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
@@ -423,6 +447,15 @@ export async function buildCaseBookHwpx(templateBuf, data) {
     xml = fillFieldBlack(xml, cloner, "2026년 00월 00일 ~ 00월 00일 /  00시 00분 ~ 00시 00분",
       `${period} / ${fmtTime(fd.start)} ~ ${fmtTime(fd.end)}`);
   }
+
+  // 후기 예시(학생→학부모→강사, charPr 46 단일 run)을 AI 후기로 교체
+  const reviews = data.reviews || {};
+  const order = ["학생", "학부모", "강사"];
+  let ri = 0;
+  xml = xml.replace(/<hp:run charPrIDRef="46"><hp:t>예시\(참고\)[^<]*<\/hp:t><\/hp:run>/g, (m) => {
+    const t = (reviews[order[ri++]] || "").trim();
+    return t ? `<hp:run charPrIDRef="${cloner.black(46)}"><hp:t>${xmlEsc(t)}</hp:t></hp:run>` : m;
+  });
 
   zip.file(path, xml);
   zip.file("Contents/header.xml", header.xml);
