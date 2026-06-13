@@ -100,6 +100,7 @@ button.ghost:hover { background: #eff6ff; }
   border-radius: 10px; padding: 11px 14px; font-size: 13.5px; font-weight: 700;
   cursor: pointer; text-align: left; transition: background .12s;
 }
+a.btn-dl { text-decoration: none; }
 .btn-dl small { font-size: 11px; font-weight: 500; color: var(--muted); }
 .btn-dl:hover:not(:disabled) { background: var(--accent-bg, #eff6ff); }
 .btn-dl:disabled { border-color: #e5e7eb; color: #9ca3af; cursor: not-allowed; background: #fafafa; }
