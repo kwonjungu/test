@@ -114,10 +114,39 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("downloadCaseBtn").addEventListener("click", onDownloadCase);
   $("downloadPledgeBtn").addEventListener("click", onDownloadPledge);
   $("shareBtn").addEventListener("click", onShareSave);
+  $("aiBtn").addEventListener("click", onGenOpinions);
 
   // 공유 코드 링크로 열렸으면 저장된 세팅 자동 불러오기
   tryLoadFromPath();
 });
+
+// AI 추진의견(주강사/보조강사/안전관리자) — Gemini 호출, 복사용 텍스트 표시
+async function onGenOpinions() {
+  if (!lastClasses || !lastClasses.length) { alert("먼저 변환하세요."); return; }
+  const c0 = lastClasses[0];
+  const program = (c0.settings && c0.settings.program) || c0.program || "";
+  const school = c0.school || "";
+  const roles = ["주강사", "보조강사", "안전관리자"];
+  setStatus("aiResult", "생성 중… (수초 소요)", "");
+  try {
+    const results = await Promise.all(roles.map(async (role) => {
+      const r = await fetch("/api/opinion", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ program, role, school })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+      return { role, text: j.text || "" };
+    }));
+    $("aiResult").className = "status ok";
+    $("aiResult").innerHTML = results.map(x =>
+      `<div style="margin-top:6px"><b>${x.role}</b>
+       <textarea readonly rows="3" style="width:100%;margin-top:2px">${x.text.replace(/</g, "&lt;")}</textarea></div>`
+    ).join("");
+  } catch (e) {
+    setStatus("aiResult", `생성 실패: ${e.message} — Vercel + GEMINI_API_KEY 설정 후 동작합니다.`, "warn");
+  }
+}
 
 // 현재 세팅을 Firebase(서버 함수 경유)에 저장하고 공유 링크 생성
 async function onShareSave() {
@@ -397,6 +426,7 @@ async function onConvert() {
 function refreshDownloadButtons() {
   if (!lastClasses || !lastClasses.length) return 0;
   $("shareBox").style.display = "flex";   // 데이터 준비되면 공유 박스 노출
+  $("aiBox").style.display = "flex";      // AI 추진의견 박스 노출
   const total = lastClasses.reduce((n, c) => n + (c.rows ? c.rows.length : 0), 0);
   $("downloadBtn").disabled = total === 0;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
