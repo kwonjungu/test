@@ -3,7 +3,7 @@ import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, fmtDate
 } from "./convert.js";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx } from "./hwpx.js";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx } from "./hwpx.js";
 import { NEIS_API_KEY } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
@@ -25,6 +25,7 @@ const ORGS = ["대림대학교", "가천대학교"];
 let xlsxTemplateBuf = null;    // 등록양식 xlsx 템플릿
 let hwpxTemplateBuf = null;    // 수령대장 hwpx 템플릿
 let equipTemplateBuf = null;   // 교구관리대장 hwpx 템플릿
+let reportTemplateBuf = null;  // 결과보고서 hwpx 템플릿
 let parsedBlocks = null;       // parseRoster 결과 (실명 포함)
 let lastClasses = null;        // 변환된 등록양식 결과
 let rosterBuf = null;
@@ -45,6 +46,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     .then(b => { hwpxTemplateBuf = b; }).catch(() => {});
   fetch("templates/교구관리대장양식.hwpx").then(r => r.arrayBuffer())
     .then(b => { equipTemplateBuf = b; }).catch(() => {});
+  fetch("templates/결과보고서양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { reportTemplateBuf = b; }).catch(() => {});
 
   // 시·도 드롭다운 채우기
   const sidoSel = $("schoolSido");
@@ -72,6 +75,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("downloadBtn").addEventListener("click", onDownloadXlsx);
   $("downloadHwpxBtn").addEventListener("click", onDownloadHwpx);
   $("downloadEquipBtn").addEventListener("click", onDownloadEquip);
+  $("downloadReportBtn").addEventListener("click", onDownloadReport);
 });
 
 async function onSchoolSearch() {
@@ -248,6 +252,7 @@ async function onConvert() {
   $("downloadBtn").disabled = total === 0;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadEquipBtn").disabled = total === 0 || !equipTemplateBuf;
+  $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
 }
@@ -335,6 +340,24 @@ async function onDownloadEquip() {
       year: 2026
     });
     triggerDownload(blob, `교구관리대장_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    if (i < lastClasses.length - 1) await sleep(350);
+  }
+}
+
+// 결과보고서 hwpx (보조강사 취합 서류) — 클래스별 개별 다운로드
+async function onDownloadReport() {
+  if (!lastClasses || !lastClasses.length || !reportTemplateBuf) return;
+  for (let i = 0; i < lastClasses.length; i++) {
+    const c = lastClasses[i];
+    const st = c.settings || {};
+    const blob = await buildReportHwpx(reportTemplateBuf, {
+      program: st.program || c.program || "",
+      school: c.school || "",
+      org: st.org || "",
+      days: st.days || [],
+      year: 2026
+    });
+    triggerDownload(blob, `결과보고서_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }

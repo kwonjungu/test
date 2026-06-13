@@ -105,17 +105,14 @@ function replaceNode(xml, oldText, newText) {
     `<hp:t>${xmlEsc(newText)}</hp:t>`);
 }
 
+// 디싹 양식 공통 플레이스홀더 채우기 (교구관리대장·결과보고서 공용)
 // data: { program, school, org, mainTeacher, equipQty, year, days:[{date:{m,d}, start, end}] }
-export async function buildEquipmentLedgerHwpx(templateBuf, data) {
-  const zip = await JSZip.loadAsync(templateBuf);
-  const path = "Contents/section0.xml";
-  let xml = await zip.file(path).async("string");
-
+function fillPlaceholders(xml, data) {
   const days = (data.days || []).filter(d => d && d.date);
   const year = data.year || 2026;
   const first = days[0]?.date, last = days[days.length - 1]?.date;
 
-  // 일차별 운영일시: "(K일차) 00월 00일 / 00시 00분 ~ 00시 00분" 형태 노드 일괄 치환
+  // 일차별 운영일시: "(K일차) 00월 00일 / 00시 00분 ~ 00시 00분" 노드 일괄 치환
   xml = xml.replace(/<hp:t>\((\d)일차\)\s*00월 00일 \/ 00시 00분 ~ 00시 00분\s*<\/hp:t>/g,
     (full, k) => {
       const idx = +k - 1;
@@ -126,31 +123,53 @@ export async function buildEquipmentLedgerHwpx(templateBuf, data) {
       return `<hp:t></hp:t>`;   // 사용하지 않는 일차는 비움
     });
 
-  // 단순 플레이스홀더 치환
+  // 프로그램명 / 교육장소 / 교구수량
   if (data.program) xml = replaceNode(xml, "프로그램명 작성해주세요", data.program);
-  if (data.school) xml = replaceNode(xml, "00초등학교 (교육장소명)", data.school);
+  if (data.school) {
+    xml = replaceNode(xml, "00초등학교 (교육장소명)", data.school);
+    xml = replaceNode(xml, "교육장소를 작성해주세요", data.school);
+    xml = replaceNode(xml, "00초등학교", data.school);
+  }
   if (data.equipQty) xml = replaceNode(xml, "00개", `${data.equipQty}개`);
 
   if (first && last) {
     const period = `${year}년 ${pad2(first.m)}월 ${pad2(first.d)}일 ~ ${pad2(last.m)}월 ${pad2(last.d)}일`;
     xml = replaceNode(xml, "2026년 00월 00일 ~ 00월 00일", period);
-    // 수령일시 = 캠프 시작일
+    // 결과보고서: 운영기간 + 시간(첫날 기준)
+    const fd = days[0];
+    xml = replaceNode(xml, "2026년 00월 00일 ~ 00월 00일 / 00시 00분 ~ 00시 00분",
+      `${period} / ${fmtTime(fd.start)} ~ ${fmtTime(fd.end)}`);
+    // 교구관리대장: 수령일시=시작일, 제출일=마지막일
     xml = replaceNode(xml, "2026.00.00 (캠프 시작일)", `${year}.${pad2(first.m)}.${pad2(first.d)} (캠프 시작일)`);
-    // 제출(서명)일자 = 수업 마지막일
     xml = replaceNode(xml, "2026. 00. 00.", `${year}. ${pad2(last.m)}. ${pad2(last.d)}.`);
   }
 
-  // 기관 (한국과학창의재단 / 대림대학교 / ... 의 대학명 교체)
   if (data.org) {
     xml = xml.replace(/한국과학창의재단 \/ 대림대학교 \//g, `한국과학창의재단 / ${xmlEsc(data.org)} /`);
   }
-  // 주강사 성명/서명
   if (data.mainTeacher) {
     xml = xml.replace(/ㅇ ㅇ ㅇ/g, xmlEsc(data.mainTeacher));
     xml = replaceNode(xml, "(주강사 성명)                            (서명)",
       `${data.mainTeacher}                            (서명)`);
   }
+  return xml;
+}
 
+async function buildPlaceholderHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  xml = fillPlaceholders(xml, data);
   zip.file(path, xml);
   return packageHwpx(zip);
+}
+
+// 교구 관리대장
+export function buildEquipmentLedgerHwpx(templateBuf, data) {
+  return buildPlaceholderHwpx(templateBuf, data);
+}
+
+// 결과보고서 (보조강사 취합 서류) — 프로그램명/교육장소/회차별 운영일시/운영기간 채움
+export function buildReportHwpx(templateBuf, data) {
+  return buildPlaceholderHwpx(templateBuf, data);
 }
