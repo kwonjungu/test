@@ -240,7 +240,10 @@ export function parseRoster(workbook) {
 
     // 신청 교사(주강사/보조강사/안전관리) 추출
     const teachers = parseTeachers(rows);
-    const mainTeacher = (teachers.find(t => /주강사/.test(t.role)) || {}).name || "";
+    const byRole = re => (teachers.find(t => re.test(t.role)) || {}).name || "";
+    const mainTeacher = byRole(/주강사/);
+    const assistantTeacher = byRole(/보조/);
+    const safetyManager = byRole(/안전/);
 
     result.push({
       sheet: sheetName,
@@ -250,7 +253,7 @@ export function parseRoster(workbook) {
       courseLevel: courseLevelFromProgram(program),   // 초저/초고/중등...
       startDate, endDate,
       dates: dateRange(startDate, endDate),           // [{m,d}, ...]
-      students, teachers, mainTeacher
+      students, teachers, mainTeacher, assistantTeacher, safetyManager
     });
   }
   return result;

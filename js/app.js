@@ -3,7 +3,7 @@ import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, fmtDate, parseSchedule, programCore
 } from "./convert.js";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx } from "./hwpx.js";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx } from "./hwpx.js";
 import { NEIS_API_KEY } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
@@ -26,6 +26,7 @@ let xlsxTemplateBuf = null;    // 등록양식 xlsx 템플릿
 let hwpxTemplateBuf = null;    // 수령대장 hwpx 템플릿
 let equipTemplateBuf = null;   // 교구관리대장 hwpx 템플릿
 let reportTemplateBuf = null;  // 결과보고서 hwpx 템플릿
+let safetyTemplateBuf = null;  // 안전업무일지 hwpx 템플릿
 let parsedBlocks = null;       // parseRoster 결과 (실명 포함)
 let lastClasses = null;        // 변환된 등록양식 결과
 let rosterBuf = null;
@@ -48,6 +49,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     .then(b => { equipTemplateBuf = b; }).catch(() => {});
   fetch("templates/결과보고서양식.hwpx").then(r => r.arrayBuffer())
     .then(b => { reportTemplateBuf = b; }).catch(() => {});
+  fetch("templates/안전업무일지양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { safetyTemplateBuf = b; }).catch(() => {});
 
   // 시·도 드롭다운 채우기
   const sidoSel = $("schoolSido");
@@ -76,6 +79,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("downloadHwpxBtn").addEventListener("click", onDownloadHwpx);
   $("downloadEquipBtn").addEventListener("click", onDownloadEquip);
   $("downloadReportBtn").addEventListener("click", onDownloadReport);
+  $("downloadSafetyBtn").addEventListener("click", onDownloadSafety);
 });
 
 async function onSchoolSearch() {
@@ -174,10 +178,12 @@ function renderSettings(blocks) {
           <label>기관 <select id="org_${id}">${orgOpts}</select></label>
         </div>
         <div class="row">
-          <label>주강사 <input type="text" id="teacher_${id}" value="${escAttr(blk.mainTeacher || "")}" placeholder="주강사 성명" style="width:110px"></label>
-          <label>교구 수량 <input type="number" id="qty_${id}" placeholder="개수" style="width:70px"></label>
-          ${blk.mainTeacher ? "" : '<span class="muted">※ 주강사 없으면 교구관리대장 비활성(보조강사 서류만)</span>'}
+          <label>주강사 <input type="text" id="teacher_${id}" value="${escAttr(blk.mainTeacher || "")}" placeholder="주강사" style="width:90px"></label>
+          <label>보조강사 <input type="text" id="assist_${id}" value="${escAttr(blk.assistantTeacher || "")}" placeholder="보조강사" style="width:90px"></label>
+          <label>안전관리자 <input type="text" id="safety_${id}" value="${escAttr(blk.safetyManager || "")}" placeholder="안전관리자" style="width:90px"></label>
+          <label>교구 수량 <input type="number" id="qty_${id}" placeholder="개수" style="width:64px"></label>
         </div>
+        ${blk.mainTeacher ? "" : '<div class="row"><span class="muted">※ 주강사 없으면 교구관리대장 비활성(보조강사 서류만)</span></div>'}
         <div class="row">${dbNote}</div>
         <div class="days" id="days_${id}">${dayRows}</div>
         <button type="button" class="addDay" data-cls="${id}">+ 일차 추가</button>
@@ -239,6 +245,8 @@ function readSettings() {
       program: $(`prog_${id}`).value,
       org: $(`org_${id}`).value,
       mainTeacher: $(`teacher_${id}`).value.trim(),
+      assistantTeacher: $(`assist_${id}`).value.trim(),
+      safetyManager: $(`safety_${id}`).value.trim(),
       equipQty: $(`qty_${id}`).value.trim(),
       days,
       dates: days.map(d => d.date)
@@ -276,6 +284,7 @@ async function onConvert() {
   $("downloadBtn").disabled = total === 0;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
+  $("downloadSafetyBtn").disabled = total === 0 || !safetyTemplateBuf;
   updateEquipBtn();   // 교구관리대장은 주강사 있을 때만 활성
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
@@ -397,6 +406,32 @@ async function onDownloadReport() {
       year: 2026
     });
     triggerDownload(blob, `결과보고서_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    if (i < lastClasses.length - 1) await sleep(350);
+  }
+}
+
+// 안전업무일지 hwpx (안전관리자 서류) — 클래스별 개별 다운로드
+async function onDownloadSafety() {
+  if (!lastClasses || !lastClasses.length || !safetyTemplateBuf) return;
+  for (let i = 0; i < lastClasses.length; i++) {
+    const c = lastClasses[i];
+    const st = c.settings || {};
+    if (!st.safetyManager) {
+      const v = prompt(`[${c.className}] 안전업무일지의 안전관리자 성명을 입력하세요.`, "");
+      if (v === null) return;
+      st.safetyManager = v.trim();
+      const inp = document.querySelector(`#safety_${cssId(c.className)}`);
+      if (inp) inp.value = st.safetyManager;
+    }
+    const blob = await buildSafetyLogHwpx(safetyTemplateBuf, {
+      program: st.program || c.program || "",
+      school: c.school || "",
+      org: st.org || "",
+      safetyManager: st.safetyManager || "",
+      days: st.days || [],
+      year: 2026
+    });
+    triggerDownload(blob, `안전업무일지_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }

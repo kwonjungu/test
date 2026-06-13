@@ -199,6 +199,14 @@ function fillPlaceholders(xml, cloner, data) {
     xml = fillFieldBlack(xml, cloner, "(주강사 성명)                            (서명)",
       `${data.mainTeacher}                            (서명)`);
   }
+  // 안전관리자 성명 (안전업무일지) — 공백 폭 보존, 검정
+  if (data.safetyManager) {
+    const nm = xmlEsc(data.safetyManager);
+    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>\(안전관리자 성명\)([\s ]*)\(서명\)<\/hp:t><\/hp:run>/g,
+      (mm, cid, sp) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${nm}${sp}(서명)</hp:t></hp:run>`);
+    xml = xml.replace(/<hp:t>\(안전관리자 성명\)([\s ]*)\(서명\)<\/hp:t>/g,
+      (mm, sp) => `<hp:t>${nm}${sp}(서명)</hp:t>`);
+  }
   return xml;
 }
 
@@ -294,4 +302,9 @@ export function buildEquipmentLedgerHwpx(templateBuf, data) {
 // 결과보고서 (보조강사 취합 서류) — 회차 블록을 일수에 맞게 확장/삭제 후 채움
 export function buildReportHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data, expandReportRounds);
+}
+
+// 안전업무일지 (안전관리자 서류) — 프로그램/기간/운영일시/운영기관/안전관리자 성명 채움
+export function buildSafetyLogHwpx(templateBuf, data) {
+  return buildPlaceholderHwpx(templateBuf, data);
 }
