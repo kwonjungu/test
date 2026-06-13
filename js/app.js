@@ -1,8 +1,10 @@
 import { RegionResolver, SIDO_LIST } from "./region.js";
 import { parseRoster, toRegistrationRows, buildRegistrationXlsx } from "./convert.js";
+import { NEIS_API_KEY } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
+resolver.neisKey = NEIS_API_KEY;   // 키를 코드에 미리 설정 (사용자 입력 불필요)
 let templateBuf = null;     // 양식 ArrayBuffer
 let lastClasses = null;     // 변환된 클래스별 결과 [{className, rows, ...}]
 let rosterBuf = null;
@@ -19,13 +21,52 @@ window.addEventListener("DOMContentLoaded", async () => {
     setStatus("templateStatus", "기본 양식을 못 불러옴 — 직접 업로드하세요", "warn");
   }
 
+  // 시·도 드롭다운 채우기
+  const sidoSel = $("schoolSido");
+  for (const s of SIDO_LIST) {
+    const o = document.createElement("option");
+    o.value = o.textContent = s;
+    sidoSel.appendChild(o);
+  }
+  sidoSel.addEventListener("change", () => {
+    const name = $("schoolSearch").value.trim();
+    if (name && sidoSel.value) {
+      resolver.learn(name, sidoSel.value);   // 수동 선택도 변환에 반영
+      setStatus("schoolStatus", `${name} → ${sidoSel.value} (수동 선택)`, "ok");
+    }
+  });
+
+  // 지역 자동조회 안내
+  if (resolver.neisKey) {
+    setStatus("neisStatus", "NEIS 자동조회 사용 가능 — 학교명으로 지역이 자동 입력됩니다.", "ok");
+  } else {
+    setStatus("neisStatus", "NEIS 키 미설정 — 번들 매핑/수동 선택으로 동작 (js/config.js에 키를 넣으면 전국 자동조회).", "warn");
+  }
+
   $("rosterFile").addEventListener("change", onRoster);
   $("templateFile").addEventListener("change", onTemplate);
   $("dbFile").addEventListener("change", onDb);
-  $("neisKey").addEventListener("change", e => resolver.neisKey = e.target.value.trim());
+  $("schoolSearchBtn").addEventListener("click", onSchoolSearch);
+  $("schoolSearch").addEventListener("keydown", e => { if (e.key === "Enter") onSchoolSearch(); });
   $("convertBtn").addEventListener("click", onConvert);
   $("downloadBtn").addEventListener("click", onDownload);
 });
+
+// 학교 검색 → 지역 자동조회 후 드롭다운 자동선택
+async function onSchoolSearch() {
+  const name = $("schoolSearch").value.trim();
+  if (!name) return;
+  setStatus("schoolStatus", "조회 중…", "");
+  const reg = await resolver.resolve(name);
+  const sel = $("schoolSido");
+  if (reg.sido) {
+    sel.value = reg.sido;                 // 드롭다운 자동선택
+    resolver.learn(name, reg.sido);       // 변환에도 반영되도록 학습
+    setStatus("schoolStatus", `${name} → ${reg.sido} (출처: ${reg.source})`, "ok");
+  } else {
+    setStatus("schoolStatus", `${name}: 자동조회 실패 — 아래 드롭다운에서 직접 선택하세요.`, "warn");
+  }
+}
 
 function setStatus(id, msg, cls = "") {
   const el = $(id); if (!el) return;

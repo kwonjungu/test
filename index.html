@@ -20,15 +20,23 @@
   </section>
 
   <section class="card">
-    <h2>2. 지역 자동완성 설정 <span class="opt">선택</span></h2>
-    <label>NEIS 개방포털 API 키 (학교명→시·도 자동조회):
-      <input type="text" id="neisKey" placeholder="open.neis.go.kr 발급 키" size="40">
+    <h2>2. 지역 자동완성 <span class="opt">자동</span></h2>
+    <div id="neisStatus" class="status"></div>
+    <label class="block">학교 검색 → 지역 자동선택:
+      <input type="text" id="schoolSearch" placeholder="예) 증안초등학교" size="28">
+      <button id="schoolSearchBtn">검색</button>
     </label>
-    <label class="block">원DB(모집현황) 업로드 — 학교명 참고용:
+    <label>지역(시·도):
+      <select id="schoolSido">
+        <option value="">— 선택 —</option>
+      </select>
+    </label>
+    <div id="schoolStatus" class="status"></div>
+    <label class="block">원DB(모집현황) 업로드 — 학교명 참고용 <span class="opt">선택</span>:
       <input type="file" id="dbFile" accept=".xlsx">
     </label>
     <div id="dbStatus" class="status"></div>
-    <p class="hint">번들 매핑 → 원DB → NEIS → 수동 순으로 지역을 채웁니다.</p>
+    <p class="hint">변환 시 명단의 학교명으로 지역이 자동 입력됩니다. (번들 매핑 → 원DB → NEIS → 수동)</p>
   </section>
 
   <section class="card">

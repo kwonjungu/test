@@ -9,13 +9,22 @@ export function anonymizeName(name) {
   return s[0] + "0" + s[s.length - 1];   // 가운데 전부 단일 0
 }
 
-export function formatPhone(raw) {
-  const d = (raw || "").toString().replace(/\D/g, "");
-  if (d.length === 11) return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
-  if (d.length === 10) return d.startsWith("02")
-    ? `${d.slice(0,2)}-${d.slice(2,6)}-${d.slice(6)}`
-    : `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`;
-  return (raw || "").toString().trim();
+// 연락처는 익명화용 고정 더미값으로 통일
+export const DUMMY_PHONE = "010-1234-1234";
+export function formatPhone(_raw) {
+  return DUMMY_PHONE;
+}
+
+// 임의 이메일 자동생성 (익명용)
+const EMAIL_DOMAINS = ["naver.com", "gmail.com", "daum.net", "hanmail.net", "kakao.com"];
+export function randomEmail() {
+  const chars = "abcdefghijklmnopqrstuvwxyz";
+  const len = 5 + Math.floor(Math.random() * 4);   // 5~8자
+  let local = "";
+  for (let i = 0; i < len; i++) local += chars[Math.floor(Math.random() * chars.length)];
+  local += Math.floor(Math.random() * 1000);        // 숫자 접미
+  const domain = EMAIL_DOMAINS[Math.floor(Math.random() * EMAIL_DOMAINS.length)];
+  return `${local}@${domain}`;
 }
 
 export function schoolLevel(schoolName, courseLevel) {
@@ -126,7 +135,7 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
       rows.push({
         "학생명": anonymizeName(s.name),
         "연락처": formatPhone(s.phone),
-        "이메일": "",
+        "이메일": randomEmail(),
         "지역": reg.sido,
         "학교": s.school,
         "학년": gradeText(s.grade, level),

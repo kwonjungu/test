@@ -18,7 +18,13 @@
 
 ### 사용법
 1. `index.html`을 열거나 GitHub Pages 주소 접속
-2. 캠프명단 xlsx 업로드 → (선택) NEIS 키/원DB 입력 → **변환** → **다운로드**
+2. 캠프명단 xlsx 업로드 → **변환** → **다운로드** (오전반/오후반 각각, 2개 이상이면 ZIP)
+3. 지역은 학교명으로 자동 입력. 미확인 학교만 "학교 검색" 또는 드롭다운으로 선택
+
+### NEIS API 키 설정 (한 번)
+지역 자동조회를 전국으로 쓰려면 `js/config.js`의 `NEIS_API_KEY`에 키를 넣습니다
+(발급: https://open.neis.go.kr). 키를 넣으면 **사용자는 키 입력 없이** 학교명만으로 지역이 채워집니다.
+GitHub Pages는 공개 사이트라 키가 노출되니, 부담되면 비공개 배포로 운영하세요.
 
 ### 로컬 실행
 모듈(ESM) 사용으로 `file://`이 아닌 로컬 서버가 필요합니다:
@@ -33,6 +39,7 @@ python -m http.server 8000
 index.html              UI
 styles.css
 js/app.js               화면/이벤트 연결
+js/config.js            NEIS API 키 설정
 js/convert.js           명단 파싱 · 변환 규칙 · xlsx 템플릿 채우기
 js/region.js            지역(시·도) 해석기 (번들/원DB/NEIS/수동)
 data/region_map.json    학교명 → 시·도 매핑 (누적)
