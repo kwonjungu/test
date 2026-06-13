@@ -309,6 +309,19 @@ async function onDownloadHwpx() {
 // 교구 관리대장 hwpx — 클래스별 개별 다운로드
 async function onDownloadEquip() {
   if (!lastClasses || !lastClasses.length || !equipTemplateBuf) return;
+
+  // 주강사 성명 사전 확인: 비어 있으면 입력받아 설정 패널에도 반영
+  for (const c of lastClasses) {
+    const st = c.settings || (c.settings = {});
+    if (!st.mainTeacher) {
+      const v = prompt(`[${c.className}] 교구관리대장에 들어갈 주강사 성명을 입력하세요.`, "");
+      if (v === null) return;                 // 취소 시 전체 중단
+      st.mainTeacher = v.trim();
+      const inp = document.querySelector(`#teacher_${cssId(c.className)}`);
+      if (inp) inp.value = st.mainTeacher;     // 패널 입력칸에도 반영
+    }
+  }
+
   for (let i = 0; i < lastClasses.length; i++) {
     const c = lastClasses[i];
     const st = c.settings || {};
