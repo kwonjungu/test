@@ -95,6 +95,38 @@ export function fmtDate(o) {
   return o ? `${o.m}월 ${o.d}일` : "";
 }
 
+// 원DB '일시' 문자열 → [{date:{m,d}, start:"HH:MM", end:"HH:MM"}]
+// ampm: "am"(오전반) | "pm"(오후반) — 시간 슬롯이 2개면 오후반은 두 번째 사용
+export function parseSchedule(ilsi, ampm = "am") {
+  const s = (ilsi || "").toString();
+  if (!s) return [];
+  // 날짜 토큰: "M월 D일" 우선, 없으면 "M.D"
+  let dates = [];
+  let m;
+  const re1 = /(\d{1,2})\s*월\s*(\d{1,2})\s*일/g;
+  while ((m = re1.exec(s))) dates.push({ m: +m[1], d: +m[2] });
+  if (!dates.length) {
+    const re2 = /(\d{1,2})\.(\d{1,2})/g;
+    while ((m = re2.exec(s))) dates.push({ m: +m[1], d: +m[2] });
+  }
+  // 중복 제거 + 정렬
+  const seen = new Set(), uniq = [];
+  for (const d of dates) { const k = d.m * 100 + d.d; if (!seen.has(k)) { seen.add(k); uniq.push(d); } }
+  uniq.sort((a, b) => a.m - b.m || a.d - b.d);
+  // 시간 슬롯
+  const times = [...s.matchAll(/(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})/g)].map(x => [x[1], x[2]]);
+  const slot = (ampm === "pm" && times.length >= 2) ? times[1] : (times[0] || ["", ""]);
+  const fix = t => t ? t.replace(/^(\d):/, "0$1:") : "";   // "9:00" -> "09:00"
+  return uniq.map(d => ({ date: d, start: fix(slot[0]), end: fix(slot[1]) }));
+}
+
+// 프로그램명 핵심부 (모든 괄호(과정/급·차시·(多) 등)·공백 제거 — finder와 동일 규칙)
+export function programCore(p) {
+  return (p || "").toString()
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s+/g, "");
+}
+
 // 사회적배려자 학급 여부 (다문화 과정)
 export function isSocialClass(program, courseLevel) {
   return /다문화/.test((courseLevel || "") + " " + (program || ""));

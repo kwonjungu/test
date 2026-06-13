@@ -49,6 +49,19 @@ export class RegionResolver {
     }
   }
 
+  // 원DB에서 학교+프로그램으로 차시별 일정(일시) 조회 → 일시 문자열 반환
+  findScheduleRaw(school, programCore) {
+    const ns = (school || "").replace(/\(저조지역\)/g, "").replace(/\s+/g, "");
+    const rec = this.programClasses.find(r => {
+      const rs = (r["학교명"] || "").replace(/\(저조지역\)/g, "").replace(/\s+/g, "");
+      if (rs !== ns) return false;
+      if (!programCore) return true;
+      const rp = (r["프로그램명"] || "").replace(/\([^)]*\)/g, "").replace(/\s+/g, "");
+      return rp.includes(programCore) || programCore.includes(rp);
+    });
+    return rec ? (rec["일시"] || "") : "";
+  }
+
   async loadBundle(url = "data/region_map.json") {
     try {
       const res = await fetch(url);

@@ -1,7 +1,7 @@
 import { RegionResolver, SIDO_LIST } from "./region.js";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
-  defaultChasi, fmtDate
+  defaultChasi, fmtDate, parseSchedule, programCore
 } from "./convert.js";
 import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx } from "./hwpx.js";
 import { NEIS_API_KEY } from "./config.js";
@@ -140,9 +140,20 @@ function renderSettings(blocks) {
     const isAfternoon = /오후/.test(blk.sheet);
     const defStart = isAfternoon ? "13:00" : "09:00";
     const defEnd = isAfternoon ? "16:10" : "12:10";
-    const dates = blk.dates.length ? blk.dates : [{ m: 0, d: 0 }];
-    const dayRows = dates.map((d, i) =>
-      dayRowHtml(id, i, d.m ? fmtDate(d) : "", defStart, defEnd)).join("");
+    // ① 원DB에 학교+프로그램 일정이 있으면 날짜·시간 자동 채움 ② 없으면 명단 날짜+기본시간
+    const sched = parseSchedule(
+      resolver.findScheduleRaw(blk.school, programCore(blk.program)),
+      isAfternoon ? "pm" : "am");
+    let dayRows, dbNote = "";
+    if (sched.length) {
+      dayRows = sched.map((s, i) =>
+        dayRowHtml(id, i, fmtDate(s.date), s.start || defStart, s.end || defEnd)).join("");
+      dbNote = '<span class="muted">※ 원DB 일정 자동적용됨(수정 가능)</span>';
+    } else {
+      const dates = blk.dates.length ? blk.dates : [{ m: 0, d: 0 }];
+      dayRows = dates.map((d, i) =>
+        dayRowHtml(id, i, d.m ? fmtDate(d) : "", defStart, defEnd)).join("");
+    }
     const progOpts = PROGRAMS.map(p =>
       `<option${p === selProg ? " selected" : ""}>${escHtml(p)}</option>`).join("");
     const orgOpts = ORGS.map(o => `<option>${o}</option>`).join("");
@@ -167,6 +178,7 @@ function renderSettings(blocks) {
           <label>교구 수량 <input type="number" id="qty_${id}" placeholder="개수" style="width:70px"></label>
           ${blk.mainTeacher ? "" : '<span class="muted">※ 주강사 없으면 교구관리대장 비활성(보조강사 서류만)</span>'}
         </div>
+        <div class="row">${dbNote}</div>
         <div class="days" id="days_${id}">${dayRows}</div>
         <button type="button" class="addDay" data-cls="${id}">+ 일차 추가</button>
       </div>`);
