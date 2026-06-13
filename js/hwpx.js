@@ -238,6 +238,12 @@ function fillPlaceholders(xml, cloner, data) {
     xml = xml.replace(/<hp:t>\(안전관리자 성명\)([\s ]*)\(서명\)<\/hp:t>/g,
       (mm, sp) => `<hp:t>${nm}${sp}(서명)</hp:t>`);
   }
+  // 보조강사 성명 (결과보고서 식다과·교재 수령대장 확인자) — 공백 폭 보존, 검정
+  if (data.assistantTeacher) {
+    const _an = xmlEsc(data.assistantTeacher);
+    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>\(보조강사 성명\)([\s\S]*?)\(서명\)<\/hp:t><\/hp:run>/g,
+      (mm, cid, sp) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${_an}${sp}(서명)</hp:t></hp:run>`);
+  }
   return xml;
 }
 

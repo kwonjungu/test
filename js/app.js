@@ -634,6 +634,7 @@ async function onDownloadReport() {
       program: st.program || c.program || "",
       school: c.school || "",
       org: st.org || "",
+      assistantTeacher: st.assistantTeacher || "",
       days: st.days || [],
       year: 2026,
       opinions
