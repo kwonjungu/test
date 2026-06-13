@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
 
     const key = process.env.GEMINI_API_KEY;
     if (!key) return res.status(500).json({ error: "GEMINI_API_KEY 미설정" });
-    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const model = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 
     const prompt =
 `너는 디지털새싹 SW·AI 교육 캠프를 직접 운영하고 마무리한 현장 담당자다.
