@@ -171,6 +171,23 @@ function makeBlackCloner(header) {
         .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
       cache[key] = newId;
       return newId;
+    },
+    // 왼쪽정렬 + 줄간격 160% paraPr 생성(srcId 복제) — 의견 칸 자동 줄바꿈용
+    leftPara(srcId) {
+      const key = "p" + srcId;
+      if (cache[key] != null) return cache[key];
+      const m = header.xml.match(new RegExp(`<hh:paraPr id="${srcId}"[\\s\\S]*?</hh:paraPr>`));
+      if (!m) return srcId;
+      let pmax = Math.max(...[...header.xml.matchAll(/<hh:paraPr id="(\d+)"/g)].map(x => +x[1]));
+      const newId = ++pmax;
+      let clone = m[0].replace(`id="${srcId}"`, `id="${newId}"`)
+        .replace(/<hh:align\b[^>]*\/>/, '<hh:align horizontal="LEFT" vertical="BASELINE"/>')
+        .replace(/<hh:lineSpacing type="[^"]*" value="\d+" unit="([^"]*)"\/>/g, '<hh:lineSpacing type="PERCENT" value="160" unit="$1"/>')
+        .replace(/<hc:intent value="-?\d+" unit="([^"]*)"\/>/g, '<hc:intent value="0" unit="$1"/>');
+      header.xml = header.xml.replace(m[0], m[0] + clone)
+        .replace(/(<hh:paraProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
+      cache[key] = newId;
+      return newId;
     }
   };
 }
@@ -384,6 +401,10 @@ function fillReportOpinions(xml, cloner, data) {
     const ne = xml.indexOf("</hp:tc>", ns);
     if (ns < 0 || ne < 0) continue;
     let tc = xml.slice(ns, ne + 8);
+    // 단락을 왼쪽정렬·줄간격160으로 + 빈칸용 줄정보 제거(긴 텍스트 자동 줄바꿈)
+    const pp = tc.match(/paraPrIDRef="(\d+)"/);
+    if (pp) tc = tc.replace(/paraPrIDRef="\d+"/, `paraPrIDRef="${cloner.leftPara(pp[1])}"`);
+    tc = tc.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/, "");
     const m = tc.match(/<hp:run charPrIDRef="(\d+)"\/>/)
            || tc.match(/<hp:run charPrIDRef="(\d+)"><hp:t><\/hp:t><\/hp:run>/);
     if (!m) continue;
@@ -443,11 +464,14 @@ function fillSafetyActivities(xml, cloner) {
   }
   const picked = pool.slice(0, 10);
   const black = cloner.black(27);
-  const skip = new Set(["(안전관리 업무 활동)", "(예시를 참고하여 작성할 것)"]);
+  const drop = new Set(["(안전관리 업무 활동)", "(예시를 참고하여 작성할 것)"]);
   let i = 0;
   xml = xml.replace(/<hp:run charPrIDRef="27"><hp:t>([^<]*)<\/hp:t><\/hp:run>/g, (m, t) => {
-    if (skip.has(t.trim()) || i >= picked.length) return m;
-    return `<hp:run charPrIDRef="${black}"><hp:t>- ${xmlEsc(picked[i++])}</hp:t></hp:run>`;
+    const tt = t.trim();
+    if (drop.has(tt)) return `<hp:run charPrIDRef="${black}"><hp:t></hp:t></hp:run>`;  // 헤더 2줄 삭제
+    if (i >= picked.length) return m;
+    const item = picked[i++].replace(/^[-\s]+/, "");   // 앞 '- ' 중복 방지(하나만)
+    return `<hp:run charPrIDRef="${black}"><hp:t>- ${xmlEsc(item)}</hp:t></hp:run>`;
   });
   return xml;
 }
