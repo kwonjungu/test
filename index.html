@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>디싹 캠프 서류 자동화</title>
-<link rel="stylesheet" href="styles.css?v=12">
+<link rel="stylesheet" href="styles.css?v=13">
 </head>
 <body>
 <header>
@@ -48,6 +48,13 @@
   <section class="card action-card">
     <button id="convertBtn" class="btn-convert">변환하기</button>
     <div id="convertStatus" class="status"></div>
+
+    <div id="shareBox" class="share-box" style="display:none">
+      <span class="share-label">🔗 공유 링크</span>
+      <input type="text" id="shareCode" placeholder="코드 입력 (예: jeungan-0621)" maxlength="40">
+      <button id="shareBtn" class="ghost">링크 만들기</button>
+      <div id="shareResult" class="status"></div>
+    </div>
 
     <div class="dl-wrap">
       <h3 class="dl-title">서류 다운로드 <span class="opt">변환 후 활성화</span></h3>
@@ -103,6 +110,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script type="module" src="js/app.js?v=12"></script>
+<script type="module" src="js/app.js?v=13"></script>
 </body>
 </html>

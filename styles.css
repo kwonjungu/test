@@ -91,6 +91,13 @@ button.ghost:hover { background: #eff6ff; }
 .btn-convert:hover { background: #1b327a; }
 .btn-convert:active { transform: translateY(1px); }
 
+.share-box { margin-top: 14px; padding: 12px 14px; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.share-box .share-label { font-size: 13px; font-weight: 700; color: var(--ink); }
+.share-box input { flex: 1; min-width: 180px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
+.share-box #shareResult { flex-basis: 100%; }
+.share-box #shareResult a { color: var(--blue); font-weight: 700; word-break: break-all; }
+
 .dl-wrap { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
 .dl-title { margin: 0 0 12px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
 .dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }

@@ -1,0 +1,9 @@
+{
+  "name": "disak-camp-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "디싹 캠프 서류 자동화 — Vercel 서버리스(Firebase/Groq)",
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}

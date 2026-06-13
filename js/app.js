@@ -113,7 +113,67 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("downloadMultiBtn").addEventListener("click", onDownloadMulti);
   $("downloadCaseBtn").addEventListener("click", onDownloadCase);
   $("downloadPledgeBtn").addEventListener("click", onDownloadPledge);
+  $("shareBtn").addEventListener("click", onShareSave);
+
+  // 공유 코드 링크로 열렸으면 저장된 세팅 자동 불러오기
+  tryLoadFromPath();
 });
+
+// 현재 세팅을 Firebase(서버 함수 경유)에 저장하고 공유 링크 생성
+async function onShareSave() {
+  if (!lastClasses || !lastClasses.length) { alert("먼저 변환하세요."); return; }
+  const code = $("shareCode").value.trim().toLowerCase().replace(/[^a-z0-9가-힣_-]/g, "");
+  if (!code) { alert("공유 코드를 입력하세요 (영문/숫자/한글/-/_)"); return; }
+  setStatus("shareResult", "저장 중…", "");
+  const payload = {
+    rosterName,
+    parsedBlocks,
+    classes: lastClasses.map(c => ({
+      className: c.className, settings: c.settings, school: c.school,
+      program: c.program, rows: c.rows, realNames: c.realNames, regionLog: c.regionLog || []
+    }))
+  };
+  try {
+    const r = await fetch("/api/save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, data: payload })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    const url = `${location.origin}/${j.code || code}`;
+    $("shareResult").className = "status ok";
+    $("shareResult").innerHTML = `✅ 링크 생성됨: <a href="${url}" target="_blank">${url}</a> &nbsp;<button id="copyLink" class="ghost" type="button">복사</button>`;
+    const cp = document.getElementById("copyLink");
+    if (cp) cp.onclick = () => { navigator.clipboard.writeText(url); cp.textContent = "복사됨"; };
+  } catch (e) {
+    setStatus("shareResult", `저장 실패: ${e.message} — Vercel 배포 + 환경변수(FIREBASE_*) 설정 후 동작합니다.`, "warn");
+  }
+}
+
+// 경로의 코드(/코드)로 저장된 세팅 불러와 문서 자동 세팅
+async function tryLoadFromPath() {
+  const code = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, "")).toLowerCase();
+  if (!code || code === "index.html") return;
+  setStatus("convertStatus", `코드 '${code}' 불러오는 중…`, "");
+  try {
+    const r = await fetch(`/api/load?code=${encodeURIComponent(code)}`);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(r.status === 404 ? "해당 코드를 찾을 수 없습니다" : (j.error || `HTTP ${r.status}`));
+    const data = j.data || j;
+    rosterName = data.rosterName || "명단";
+    parsedBlocks = data.parsedBlocks || [];
+    lastClasses = (data.classes || []).map(c => ({ ...c }));
+    renderPreview(lastClasses);
+    refreshDownloadButtons();
+    if ($("shareCode")) $("shareCode").value = code;
+    setStatus("convertStatus", `코드 '${code}' 불러옴 — 아래에서 서류를 바로 다운로드하세요.`, "ok");
+    // 템플릿이 늦게 로드돼도 버튼이 켜지도록 잠시 재시도
+    let n = 0;
+    const iv = setInterval(() => { refreshDownloadButtons(); if (++n > 16) clearInterval(iv); }, 300);
+  } catch (e) {
+    setStatus("convertStatus", `불러오기 실패: ${e.message}`, "warn");
+  }
+}
 
 async function onSchoolSearch() {
   const name = $("schoolSearch").value.trim();
@@ -244,12 +304,16 @@ function renderSettings(blocks) {
   host.style.display = blocks.length ? "block" : "none";
 }
 
-// 담당자 입력 여부 (설정 패널의 라이브 입력값 기준)
+// 담당자 입력 여부 — 설정 패널(라이브 입력) 우선, 패널이 없으면(링크 로드) 저장된 settings 사용
 function anyMainTeacher() {
-  return [...document.querySelectorAll('[id^="teacher_"]')].some(i => i.value.trim());
+  const dom = [...document.querySelectorAll('[id^="teacher_"]')];
+  if (dom.length) return dom.some(i => i.value.trim());
+  return !!(lastClasses && lastClasses.some(c => (c.settings || {}).mainTeacher));
 }
 function anySafetyManager() {
-  return [...document.querySelectorAll('[id^="safety_"]')].some(i => i.value.trim());
+  const dom = [...document.querySelectorAll('[id^="safety_"]')];
+  if (dom.length) return dom.some(i => i.value.trim());
+  return !!(lastClasses && lastClasses.some(c => (c.settings || {}).safetyManager));
 }
 // 담당자가 입력된 서류만 버튼 활성화 (주강사: 교구·주강사료 / 안전관리자: 안전 지급·계약서)
 function updateGatedBtns() {
@@ -324,7 +388,16 @@ async function onConvert() {
   }
 
   renderPreview(lastClasses);
-  const total = lastClasses.reduce((n, c) => n + c.rows.length, 0);
+  const total = refreshDownloadButtons();
+  setStatus("convertStatus",
+    `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
+}
+
+// 다운로드 버튼 활성화 일괄 갱신 (변환 완료 / 링크 로드 / 템플릿 로드 후 공용)
+function refreshDownloadButtons() {
+  if (!lastClasses || !lastClasses.length) return 0;
+  $("shareBox").style.display = "flex";   // 데이터 준비되면 공유 박스 노출
+  const total = lastClasses.reduce((n, c) => n + (c.rows ? c.rows.length : 0), 0);
   $("downloadBtn").disabled = total === 0;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadHwpx2Btn").disabled = total === 0 || !hwpxTemplateBuf;
@@ -336,8 +409,7 @@ async function onConvert() {
   $("downloadMultiBtn").disabled = total === 0 || !multiTemplateBuf || !anySocial;
   $("downloadCaseBtn").disabled = total === 0 || !caseTemplateBuf;
   updateGatedBtns();   // 교구·주강사료(주강사) / 안전 지급·계약서(안전관리자) 게이팅
-  setStatus("convertStatus",
-    `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
+  return total;
 }
 
 function renderPreview(classes) {
