@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>디싹 캠프명단 → 수업신청학생등록양식 변환기</title>
+<title>디싹 캠프 서류 자동화</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header>
-  <h1>캠프명단 → 수업신청학생등록양식 변환기</h1>
-  <p class="sub">1단계: 캠프명단 엑셀을 업로드하면 익명화·형식변환 후 등록양식 xlsx로 내려받습니다.</p>
+  <h1>디싹 캠프 서류 자동화</h1>
+  <p class="sub">캠프명단을 업로드하면 ① 수업신청학생등록양식(xlsx, 익명화) ② 수령대장(hwpx, 실명)을 자동 작성합니다.</p>
 </header>
 
 <main>
@@ -36,16 +36,12 @@
     <p class="hint">변환 시 명단의 학교명으로 지역이 자동 입력됩니다. (번들 매핑 → 원DB → NEIS → 수동)</p>
   </section>
 
-  <section class="card">
-    <h2>3. 양식 템플릿 <span class="opt">기본 내장</span></h2>
-    <input type="file" id="templateFile" accept=".xlsx">
-    <div id="templateStatus" class="status"></div>
-    <p class="hint">기본 양식이 내장되어 있습니다. 다른 양식을 쓰려면 업로드하세요.</p>
-  </section>
+  <section class="card" id="settings" style="display:none"></section>
 
   <section class="card">
     <button id="convertBtn" class="primary">변환</button>
-    <button id="downloadBtn" class="primary" disabled>등록양식 다운로드</button>
+    <button id="downloadBtn" class="primary" disabled>등록양식(xlsx) 다운로드</button>
+    <button id="downloadHwpxBtn" class="primary" disabled>수령대장(hwpx) 다운로드</button>
     <div id="convertStatus" class="status"></div>
   </section>
 

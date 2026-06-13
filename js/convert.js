@@ -56,6 +56,45 @@ function courseLevelFromProgram(prog) {
   return m ? m[2].trim() : "";
 }
 
+// 프로그램명에서 과정 추출: "(기본/초저) ..." -> "기본"
+function courseTypeFromProgram(prog) {
+  const m = (prog || "").toString().match(/\(([^/]+)\/([^)]+)\)/);
+  return m ? m[1].trim() : "";
+}
+
+// 과정 -> 총차시 기본값: 기본=8, 그 외(특화/AI특화)=12
+export function defaultChasi(courseType) {
+  return /기본/.test(courseType || "") ? 8 : 12;
+}
+
+// "2026.06.20." -> {m:6, d:20}
+export function parseYmd(s) {
+  const m = (s || "").toString().match(/(\d{4})[.\-/\s]+(\d{1,2})[.\-/\s]+(\d{1,2})/);
+  if (!m) return null;
+  return { y: +m[1], m: +m[2], d: +m[3] };
+}
+
+// 시작~종료 날짜를 일자 배열로: [{m,d}, ...]
+export function dateRange(start, end) {
+  const a = parseYmd(start), b = parseYmd(end);
+  if (!a) return [];
+  if (!b) return [{ m: a.m, d: a.d }];
+  const out = [];
+  let cur = new Date(a.y, a.m - 1, a.d);
+  const last = new Date(b.y, b.m - 1, b.d);
+  let guard = 0;
+  while (cur <= last && guard++ < 40) {
+    out.push({ m: cur.getMonth() + 1, d: cur.getDate() });
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+// {m,d} -> "6월 20일"
+export function fmtDate(o) {
+  return o ? `${o.m}월 ${o.d}일` : "";
+}
+
 // 사회적배려자 학급 여부 (다문화 과정)
 export function isSocialClass(program, courseLevel) {
   return /다문화/.test((courseLevel || "") + " " + (program || ""));
@@ -100,6 +139,8 @@ export function parseRoster(workbook) {
         col.phone = r.indexOf("전화");
         col.school = r.indexOf("학교");
         col.grade = r.indexOf("학년");
+        col.start = r.findIndex(x => x.startsWith("교육시작"));
+        col.end = r.findIndex(x => x.startsWith("교육종료"));
         col.memo = r.indexOf("메모(특이사항)");
         if (col.memo < 0) col.memo = r.findIndex(x => x.startsWith("메모"));
         break;
@@ -108,11 +149,14 @@ export function parseRoster(workbook) {
     if (hIdx < 0) continue;
 
     const students = [];
+    let startDate = "", endDate = "";
     for (let i = hIdx + 1; i < rows.length; i++) {
       const r = rows[i];
       const nm = (r[col.name] || "").toString().trim();
       if (!nm) break;                              // 빈 줄이면 명단 끝
       if (/신청\s*교사|문의|^No$|^이름$/.test(nm)) break;  // 교사 섹션 진입
+      if (!startDate && col.start >= 0) startDate = (r[col.start] || "").toString().trim();
+      if (col.end >= 0) { const ev = (r[col.end] || "").toString().trim(); if (ev) endDate = ev; }
       students.push({
         name: nm,
         phone: (r[col.phone] || "").toString().trim(),
@@ -126,7 +170,10 @@ export function parseRoster(workbook) {
       sheet: sheetName,
       school: school,
       program: program,
-      courseLevel: courseLevelFromProgram(program),
+      courseType: courseTypeFromProgram(program),    // 기본/특화/AI특화
+      courseLevel: courseLevelFromProgram(program),   // 초저/초고/중등...
+      startDate, endDate,
+      dates: dateRange(startDate, endDate),           // [{m,d}, ...]
       students
     });
   }
@@ -137,11 +184,16 @@ export function parseRoster(workbook) {
 // 오전반/오후반 등 학생이 있는 클래스마다 별도 결과를 만든다.
 // 클래스 수 = 명단에서 학생이 있는 시트 수 (원데이터 기준).
 // regionResolver.resolve(school) -> {sido, source}
+// opts.socialByClass: { [className]: true } — 다문화/사회배려 학급 수동 체크
 export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
+  const socialByClass = opts.socialByClass || {};
   const classes = [];
   for (const blk of blocks) {
     if (!blk.students.length) continue;   // 학생 없는 클래스는 제외
-    const social = isSocialClass(blk.program, blk.courseLevel);
+    // 체크박스 우선, 없으면 프로그램명 자동감지
+    const social = (blk.sheet in socialByClass)
+      ? !!socialByClass[blk.sheet]
+      : isSocialClass(blk.program, blk.courseLevel);
     const rows = [];
     const regionLog = [];
     for (const s of blk.students) {

@@ -1,31 +1,35 @@
 import { RegionResolver, SIDO_LIST } from "./region.js";
-import { parseRoster, toRegistrationRows, buildRegistrationXlsx } from "./convert.js";
+import {
+  parseRoster, toRegistrationRows, buildRegistrationXlsx,
+  defaultChasi, fmtDate
+} from "./convert.js";
+import { buildReceiptHwpx } from "./hwpx.js";
 import { NEIS_API_KEY } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
-resolver.neisKey = NEIS_API_KEY;   // 키를 코드에 미리 설정 (사용자 입력 불필요)
-let templateBuf = null;     // 양식 ArrayBuffer
-let lastClasses = null;     // 변환된 클래스별 결과 [{className, rows, ...}]
+resolver.neisKey = NEIS_API_KEY;
+
+let xlsxTemplateBuf = null;    // 등록양식 xlsx 템플릿
+let hwpxTemplateBuf = null;    // 수령대장 hwpx 템플릿
+let parsedBlocks = null;       // parseRoster 결과 (실명 포함)
+let lastClasses = null;        // 변환된 등록양식 결과
 let rosterBuf = null;
 let rosterName = "명단";
 
 window.addEventListener("DOMContentLoaded", async () => {
   await resolver.loadBundle();
-  // 원DB(모집현황) 비PII 참고데이터를 백그라운드로 내장 로드
   resolver.loadProgramDb().then(info => {
     setStatus("dbStatus",
       `원DB 내장됨 — 참고 학교 ${info.schools}개 / 학급 ${info.classes}건`,
       info.schools ? "ok" : "warn");
   });
-  // 기본 양식 템플릿 미리 로드
-  try {
-    const res = await fetch("templates/수업신청학생등록양식.xlsx");
-    templateBuf = await res.arrayBuffer();
-    setStatus("templateStatus", "기본 양식 템플릿 로드됨", "ok");
-  } catch (e) {
-    setStatus("templateStatus", "기본 양식을 못 불러옴 — 직접 업로드하세요", "warn");
-  }
+
+  // 템플릿 백그라운드 로드 (등록양식 xlsx + 수령대장 hwpx)
+  fetch("templates/수업신청학생등록양식.xlsx").then(r => r.arrayBuffer())
+    .then(b => { xlsxTemplateBuf = b; }).catch(() => {});
+  fetch("templates/수령대장양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { hwpxTemplateBuf = b; }).catch(() => {});
 
   // 시·도 드롭다운 채우기
   const sidoSel = $("schoolSido");
@@ -37,37 +41,34 @@ window.addEventListener("DOMContentLoaded", async () => {
   sidoSel.addEventListener("change", () => {
     const name = $("schoolSearch").value.trim();
     if (name && sidoSel.value) {
-      resolver.learn(name, sidoSel.value);   // 수동 선택도 변환에 반영
+      resolver.learn(name, sidoSel.value);
       setStatus("schoolStatus", `${name} → ${sidoSel.value} (수동 선택)`, "ok");
     }
   });
 
-  // 지역 자동조회 안내 (NEIS는 키 없이 동작)
   setStatus("neisStatus",
     "NEIS 자동조회 사용 중 — 학교명으로 전국 학교의 지역이 자동 입력됩니다." +
     (resolver.neisKey ? " (API 키 적용)" : ""), "ok");
 
   $("rosterFile").addEventListener("change", onRoster);
-  $("templateFile").addEventListener("change", onTemplate);
   $("schoolSearchBtn").addEventListener("click", onSchoolSearch);
   $("schoolSearch").addEventListener("keydown", e => { if (e.key === "Enter") onSchoolSearch(); });
   $("convertBtn").addEventListener("click", onConvert);
-  $("downloadBtn").addEventListener("click", onDownload);
+  $("downloadBtn").addEventListener("click", onDownloadXlsx);
+  $("downloadHwpxBtn").addEventListener("click", onDownloadHwpx);
 });
 
-// 학교 검색 → 지역 자동조회 후 드롭다운 자동선택
 async function onSchoolSearch() {
   const name = $("schoolSearch").value.trim();
   if (!name) return;
   setStatus("schoolStatus", "조회 중…", "");
   const reg = await resolver.resolve(name);
-  const sel = $("schoolSido");
   if (reg.sido) {
-    sel.value = reg.sido;                 // 드롭다운 자동선택
-    resolver.learn(name, reg.sido);       // 변환에도 반영되도록 학습
+    $("schoolSido").value = reg.sido;
+    resolver.learn(name, reg.sido);
     setStatus("schoolStatus", `${name} → ${reg.sido} (출처: ${reg.source})`, "ok");
   } else {
-    setStatus("schoolStatus", `${name}: 자동조회 실패 — 아래 드롭다운에서 직접 선택하세요.`, "warn");
+    setStatus("schoolStatus", `${name}: 자동조회 실패 — 드롭다운에서 직접 선택하세요.`, "warn");
   }
 }
 
@@ -76,52 +77,106 @@ function setStatus(id, msg, cls = "") {
   el.textContent = msg; el.className = "status " + cls;
 }
 
+// 명단 업로드 → 즉시 파싱 → 편집 가능한 설정 패널 표시
 async function onRoster(e) {
   const f = e.target.files[0]; if (!f) return;
   rosterBuf = await f.arrayBuffer();
   rosterName = f.name.replace(/\.xlsx$/i, "");
-  setStatus("rosterStatus", `명단 로드됨: ${f.name}`, "ok");
+  const wb = XLSX.read(rosterBuf, { type: "array" });
+  parsedBlocks = parseRoster(wb).filter(b => b.students.length);
+  setStatus("rosterStatus",
+    `명단 로드됨: ${f.name} — 클래스 ${parsedBlocks.length}개`, "ok");
+  renderSettings(parsedBlocks);
 }
-async function onTemplate(e) {
-  const f = e.target.files[0]; if (!f) return;
-  templateBuf = await f.arrayBuffer();
-  setStatus("templateStatus", `양식 교체됨: ${f.name}`, "ok");
+
+// 클래스(오전/오후)별 편집 패널: 다문화 체크 / 날짜 / 차시
+function renderSettings(blocks) {
+  const host = $("settings");
+  host.innerHTML = "<h2>2.5 캠프 정보 확인·수정 <span class=\"opt\">변환 전</span></h2>";
+  for (const blk of blocks) {
+    const id = cssId(blk.sheet);
+    const chasi = defaultChasi(blk.courseType);
+    const perDay = blk.dates.length ? Math.round(chasi / blk.dates.length) : 4;
+    const dateInputs = blk.dates.map((d, i) =>
+      `<input type="text" class="dateInp" data-cls="${id}" value="${fmtDate(d)}" placeholder="${i+1}일차">`
+    ).join(" ");
+    host.insertAdjacentHTML("beforeend", `
+      <div class="clsbox" data-cls="${id}" data-sheet="${escAttr(blk.sheet)}">
+        <div class="clshead"><b>${escHtml(blk.sheet)}</b>
+          <span class="muted">${escHtml(blk.school)} · ${escHtml(blk.program)} · ${blk.students.length}명</span></div>
+        <label><input type="checkbox" class="socialChk" id="social_${id}"> 다문화 / 사회적배려 학급</label>
+        <div class="row">
+          <label>총 차시 <input type="number" class="totChasi" id="tot_${id}" value="${chasi}" min="1" max="24" style="width:56px"></label>
+          <label>일별 차시 <input type="number" class="perChasi" id="per_${id}" value="${perDay}" min="1" max="12" style="width:56px"></label>
+          <span class="muted">일자(날짜는 수정 가능):</span> <span class="dates">${dateInputs || '<span class="muted">날짜 정보 없음</span>'}</span>
+        </div>
+      </div>`);
+    // 다문화 체크 시 확인 질문
+    $(`social_${id}`).addEventListener("change", (ev) => {
+      if (ev.target.checked) {
+        const ok = confirm(`[${blk.sheet}] 다문화/사회적배려 학급으로 설정합니다.\n\n캠프 명단의 '메모(특이사항)' 칸에 다문화 학생을 '다문화'라고 표시하셨나요?\n\n표시된 학생만 공란 처리되고, 나머지 일반학생에게 '일반학생 여부 = Y'가 들어갑니다.`);
+        if (!ok) ev.target.checked = false;
+      }
+    });
+  }
+  host.style.display = blocks.length ? "block" : "none";
 }
+
+// 설정 패널에서 클래스별 설정 읽기
+function readSettings() {
+  const map = {};
+  document.querySelectorAll(".clsbox").forEach(box => {
+    const id = box.dataset.cls;
+    const sheet = box.dataset.sheet;
+    const social = $(`social_${id}`).checked;
+    const chasi = parseInt($(`tot_${id}`).value, 10) || 8;
+    const perDay = parseInt($(`per_${id}`).value, 10) || 4;
+    const dates = [...box.querySelectorAll(".dateInp")].map(inp => parseDateInput(inp.value));
+    map[sheet] = { social, chasi, perDay, dates };
+  });
+  return map;
+}
+
+// "6월 20일" → {m,d}
+function parseDateInput(s) {
+  const m = (s || "").match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  return m ? { m: +m[1], d: +m[2] } : null;
+}
+
 async function onConvert() {
   if (!rosterBuf) { alert("캠프명단을 먼저 업로드하세요"); return; }
-  if (!templateBuf) { alert("양식 템플릿이 없습니다"); return; }
+  if (!xlsxTemplateBuf) { alert("등록양식 템플릿 로딩 중입니다. 잠시 후 다시 시도하세요."); return; }
   setStatus("convertStatus", "변환 중…", "");
 
-  const wb = XLSX.read(rosterBuf, { type: "array" });
-  const blocks = parseRoster(wb);
-  lastClasses = await toRegistrationRows(blocks, resolver);
+  const settings = readSettings();
+  const socialByClass = {};
+  for (const k in settings) socialByClass[k] = settings[k].social;
+
+  lastClasses = await toRegistrationRows(parsedBlocks, resolver, { socialByClass });
+  // 설정(차시/날짜)·실명을 클래스 결과에 부착
+  for (const c of lastClasses) {
+    const blk = parsedBlocks.find(b => b.sheet === c.className);
+    c.settings = settings[c.className] || {};
+    c.realNames = blk ? blk.students.map(s => s.name) : [];
+  }
 
   renderPreview(lastClasses);
   const total = lastClasses.reduce((n, c) => n + c.rows.length, 0);
   $("downloadBtn").disabled = total === 0;
-  $("downloadBtn").textContent = lastClasses.length > 1
-    ? `등록양식 ${lastClasses.length}개 파일 개별 다운로드` : "등록양식 다운로드";
+  $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
 }
 
 function renderPreview(classes) {
   $("meta").innerHTML = classes
-    .map(c => `<b>${c.className}</b>: ${c.school} / ${c.program} (${c.rows.length}명)`)
+    .map(c => `<b>${escHtml(c.className)}</b>: ${escHtml(c.school)} / ${escHtml(c.program)} (${c.rows.length}명)`)
     .join("<br>");
 
-  // 지역 미해결 경고 (전체 클래스 합산)
   const allLog = classes.flatMap(c => c.regionLog);
   const unresolved = [...new Set(allLog.filter(r => !r.sido).map(r => r.school))];
   if (unresolved.length) {
-    $("warn").innerHTML = `⚠ 지역 미확인 학교: <b>${unresolved.join(", ")}</b> — NEIS 키를 입력하거나 수동 선택하세요.<br>` +
-      `<select id="manualSido">${SIDO_LIST.map(s => `<option>${s}</option>`).join("")}</select> ` +
-      `<button id="applySido">미확인 전체에 적용</button>`;
-    $("applySido").onclick = () => {
-      const sido = $("manualSido").value;
-      unresolved.forEach(sc => resolver.learn(sc, sido));
-      onConvert();
-    };
+    $("warn").innerHTML = `⚠ 지역 미확인 학교: <b>${unresolved.join(", ")}</b> — 학교 검색/드롭다운으로 선택 후 다시 변환하세요.`;
   } else {
     $("warn").innerHTML = "";
   }
@@ -129,32 +184,50 @@ function renderPreview(classes) {
   const head = ["학생명","연락처","이메일","지역","학교","학년","반","일반학생 여부"];
   let html = "";
   for (const c of classes) {
-    html += `<h3 class="cls">${c.className} (${c.rows.length}명)</h3>`;
+    html += `<h3 class="cls">${escHtml(c.className)} (${c.rows.length}명)</h3>`;
     html += "<table><thead><tr>" + head.map(h => `<th>${h}</th>`).join("") + "</tr></thead><tbody>";
     for (const r of c.rows) {
-      html += "<tr>" + head.map(h => `<td>${r[h] || ""}</td>`).join("") + "</tr>";
+      html += "<tr>" + head.map(h => `<td>${escHtml(r[h] || "")}</td>`).join("") + "</tr>";
     }
     html += "</tbody></table>";
   }
   $("preview").innerHTML = html;
 }
 
-function safeName(s) { return (s || "").replace(/[\\/:*?"<>|]/g, "_"); }
-
-async function onDownload() {
+// 등록양식 xlsx (익명화) — 클래스별 개별 다운로드
+async function onDownloadXlsx() {
   if (!lastClasses || !lastClasses.length) return;
-
-  // 클래스(오전반/오후반)별 파일을 개별로 다운로드 (ZIP 없음)
   for (let i = 0; i < lastClasses.length; i++) {
     const c = lastClasses[i];
-    const blob = await buildRegistrationXlsx(templateBuf, c.rows);
-    const name = `수업신청학생등록양식_${safeName(rosterName)}_${safeName(c.className)}.xlsx`;
-    triggerDownload(blob, name);
-    if (i < lastClasses.length - 1) await sleep(350);  // 연속 다운로드 차단 방지
+    const blob = await buildRegistrationXlsx(xlsxTemplateBuf, c.rows);
+    triggerDownload(blob, `수업신청학생등록양식_${safeName(rosterName)}_${safeName(c.className)}.xlsx`);
+    if (i < lastClasses.length - 1) await sleep(350);
   }
 }
 
+// 수령대장 hwpx (실명) — 클래스별 개별 다운로드
+async function onDownloadHwpx() {
+  if (!lastClasses || !lastClasses.length || !hwpxTemplateBuf) return;
+  for (let i = 0; i < lastClasses.length; i++) {
+    const c = lastClasses[i];
+    const st = c.settings || {};
+    const dates = (st.dates || []).filter(Boolean);
+    const blob = await buildReceiptHwpx(hwpxTemplateBuf, {
+      names: c.realNames || [],
+      chasi: st.chasi || 8,
+      dates
+    });
+    triggerDownload(blob, `수령대장_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    if (i < lastClasses.length - 1) await sleep(350);
+  }
+}
+
+// ---- 유틸 ----
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+function safeName(s) { return (s || "").replace(/[\\/:*?"<>|]/g, "_"); }
+function cssId(s) { return "c" + Array.from(s).reduce((a, ch) => ((a << 5) - a + ch.charCodeAt(0)) | 0, 0).toString(36).replace("-", "n"); }
+function escHtml(s) { return (s ?? "").toString().replace(/[&<>]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m])); }
+function escAttr(s) { return escHtml(s).replace(/"/g, "&quot;"); }
 
 function triggerDownload(blob, name) {
   const url = URL.createObjectURL(blob);
