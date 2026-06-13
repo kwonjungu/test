@@ -11,8 +11,8 @@ function xmlEsc(s) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// 한 표(tbl 문자열)에 이름/날짜 채우기
-function fillTable(tbl, names, dates) {
+// 한 표(tbl 문자열)에 이름/날짜 채우기 (채운 글자는 검정·11pt·함초롬바탕 통일)
+function fillTable(tbl, names, dates, cloner) {
   return tbl.replace(/<hp:tc\b[\s\S]*?<\/hp:tc>/g, (tc) => {
     const a = tc.match(/colAddr="(\d+)" rowAddr="(\d+)"/);
     if (!a) return tc;
@@ -22,9 +22,8 @@ function fillTable(tbl, names, dates) {
     if (col === 1 && row >= 2 && row <= 26) {
       const idx = row - 2;
       if (idx < names.length && names[idx]) {
-        // 빈 self-closing run에 텍스트 주입 (charPrIDRef 보존)
         return tc.replace(/<hp:run charPrIDRef="(\d+)"\/>/,
-          `<hp:run charPrIDRef="$1"><hp:t>${xmlEsc(names[idx])}</hp:t></hp:run>`);
+          (mm, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(names[idx])}</hp:t></hp:run>`);
       }
       return tc;
     }
@@ -34,10 +33,16 @@ function fillTable(tbl, names, dates) {
       const di = col - 2;
       if (di < dates.length && dates[di]) {
         const label = `${dates[di].m}월 ${dates[di].d}일`;
-        // 표0형: "(N일차)   월   일" 단일 노드
-        let tc2 = tc.replace(/(\(\d일차\))\s*월\s*일/, `$1 ${label}`);
-        // 표1형: "   월   일" 별도 노드
-        if (tc2 === tc) tc2 = tc.replace(/<hp:t>\s*월\s*일<\/hp:t>/, `<hp:t> ${label}</hp:t>`);
+        let tc2 = tc;
+        // 표0형: 한 run의 "(N일차)   월   일"
+        tc2 = tc2.replace(/<hp:run charPrIDRef="(\d+)">(<hp:t>)(\(\d일차\))\s*월\s*일(<\/hp:t>)<\/hp:run>/,
+          (mm, cid, o, pre, c) => `<hp:run charPrIDRef="${cloner.black(cid)}">${o}${pre} ${label}${c}</hp:run>`);
+        // 표1형: " 월 일"만 별도 run
+        if (tc2 === tc) tc2 = tc2.replace(/<hp:run charPrIDRef="(\d+)">(<hp:t>)\s*월\s*일(<\/hp:t>)<\/hp:run>/,
+          (mm, cid, o, c) => `<hp:run charPrIDRef="${cloner.black(cid)}">${o} ${label}${c}</hp:run>`);
+        // 표1형: "(N일차)" 단독 run도 검정 통일
+        tc2 = tc2.replace(/<hp:run charPrIDRef="(\d+)">(<hp:t>\(\d일차\)<\/hp:t>)<\/hp:run>/,
+          (mm, cid, inner) => `<hp:run charPrIDRef="${cloner.black(cid)}">${inner}</hp:run>`);
         return tc2;
       }
     }
@@ -50,6 +55,8 @@ export async function buildReceiptHwpx(templateBuf, { names, chasi, dates }) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
+  const header = { xml: await zip.file("Contents/header.xml").async("string") };
+  const cloner = makeBlackCloner(header);
 
   // 표 위치 추출
   const tbls = [];
@@ -65,12 +72,13 @@ export async function buildReceiptHwpx(templateBuf, { names, chasi, dates }) {
     const isTarget = (chasi === 8 && sc === 2) || (chasi === 12 && sc === 4)
       || (chasi !== 8 && chasi !== 12 && i === 0);  // 알 수 없으면 첫 표
     if (isTarget) {
-      const filled = fillTable(t.text, names, dates);
+      const filled = fillTable(t.text, names, dates, cloner);
       xml = xml.slice(0, t.start) + filled + xml.slice(t.end);
     }
   }
 
   zip.file(path, xml);
+  zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
 }
 
@@ -105,25 +113,42 @@ const rgEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function makeBlackCloner(header) {
   let maxId = Math.max(...[...header.xml.matchAll(/<hh:charPr id="(\d+)"/g)].map(m => +m[1]));
   const cache = {};
+  // lang 그룹별 '함초롬바탕' 폰트 id 수집 (서류마다 id가 다름)
+  const fontIds = {};
+  for (const fm of header.xml.matchAll(/<hh:fontface lang="([^"]+)"[^>]*>([\s\S]*?)<\/hh:fontface>/g)) {
+    const f = fm[2].match(/<hh:font id="(\d+)"[^>]*face="함초롬바탕"/);
+    if (f) fontIds[fm[1].toLowerCase()] = f[1];
+  }
   return {
     get xml() { return header.xml; },
-    // 채워넣는 글자는 검정(#000000) + 11pt(height 1100)로 통일
+    // 채워넣는 글자 통일: 검정(#000000) + 11pt(height 1100) + 함초롬바탕 + 정자체(기울임/밑줄/취소선 제거)
     black(cid) {
-      if (cache[cid]) return cache[cid];
+      if (cache[cid] != null) return cache[cid];
       const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
       if (!m) return cid;
       const block = m[0];
       const color = block.match(/textColor="([^"]+)"/);
       const height = block.match(/\bheight="(\d+)"/);
+      const fr = block.match(/<hh:fontRef\b[^>]*hangul="(\d+)"/);
       const isBlack = color && color[1].toUpperCase() === "#000000";
       const is11 = height && height[1] === "1100";
-      if (isBlack && is11) { cache[cid] = cid; return cid; }   // 이미 검정·11pt
+      const isFont = fr && fontIds.hangul != null && fr[1] === fontIds.hangul;
+      const noItalic = !/<hh:italic\/>/.test(block);
+      if (isBlack && is11 && isFont && noItalic) { cache[cid] = cid; return cid; }
       const newId = ++maxId;
       let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
       clone = color ? clone.replace(/textColor="[^"]+"/, 'textColor="#000000"')
                     : clone.replace(/(<hh:charPr id="\d+")/, '$1 textColor="#000000"');
       clone = height ? clone.replace(/\bheight="\d+"/, 'height="1100"')
                      : clone.replace(/(<hh:charPr id="\d+")/, '$1 height="1100"');
+      // 폰트(fontRef 각 lang)를 함초롬바탕으로
+      clone = clone.replace(/<hh:fontRef\b[^>]*\/>/, f =>
+        f.replace(/(hangul|latin|hanja|japanese|other|symbol|user)="\d+"/g,
+          (a, lang) => fontIds[lang] != null ? `${lang}="${fontIds[lang]}"` : a));
+      // 정자체화: 기울임 제거, 밑줄·취소선 없음
+      clone = clone.replace(/<hh:italic\/>/, "");
+      clone = clone.replace(/<hh:underline\b[^/]*\/>/, '<hh:underline type="NONE" shape="SOLID" color="#000000"/>');
+      clone = clone.replace(/<hh:strikeout\b[^/]*\/>/, '<hh:strikeout shape="NONE" color="#000000"/>');
       header.xml = header.xml.replace(block, block + clone)
         .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
       cache[cid] = newId;
@@ -311,15 +336,24 @@ export function buildEquipmentLedgerHwpx(templateBuf, data) {
 function fillReportOpinions(xml, cloner, data) {
   const ops = data.opinions || {};
   const labels = { "주강사": "(주강사 작성용)", "보조강사": "(보조강사 작성용)", "안전관리자": "(안전관리자 작성용)" };
-  let maxId = Math.max(...[...xml.matchAll(/<hp:p id="(\d+)"/g)].map(m => +m[1]), 0);
   for (const role of Object.keys(labels)) {
     const text = (ops[role] || "").trim();
     if (!text) continue;
-    const black = cloner.black(20);   // 라벨과 동일 서식의 검정 본문
-    const re = new RegExp(`(<hp:p\\b[^>]*>(?:(?!</hp:p>)[\\s\\S])*?${rgEsc(labels[role])}(?:(?!</hp:p>)[\\s\\S])*?</hp:p>)`);
-    const para = `<hp:p id="${++maxId}" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">` +
-      `<hp:run charPrIDRef="${black}"><hp:t>${xmlEsc(text)}</hp:t></hp:run></hp:p>`;
-    xml = xml.replace(re, `$1${para}`);
+    // 라벨 셀(▶ …작성용…) 바로 다음 빈 셀(작성칸)에 주입
+    const li = xml.indexOf(labels[role]);
+    if (li < 0) continue;
+    const labEnd = xml.indexOf("</hp:tc>", li);
+    if (labEnd < 0) continue;
+    const ns = xml.indexOf("<hp:tc", labEnd + 8);
+    const ne = xml.indexOf("</hp:tc>", ns);
+    if (ns < 0 || ne < 0) continue;
+    let tc = xml.slice(ns, ne + 8);
+    const m = tc.match(/<hp:run charPrIDRef="(\d+)"\/>/)
+           || tc.match(/<hp:run charPrIDRef="(\d+)"><hp:t><\/hp:t><\/hp:run>/);
+    if (!m) continue;
+    const repl = `<hp:run charPrIDRef="${cloner.black(m[1])}"><hp:t>${xmlEsc(text)}</hp:t></hp:run>`;
+    tc = tc.replace(m[0], repl);
+    xml = xml.slice(0, ns) + tc + xml.slice(ne + 8);
   }
   return xml;
 }
@@ -363,7 +397,8 @@ const SAFETY_ACTIVITIES = [
   "일일 안전점검 결과 기록 및 보고"
 ];
 
-// 업무내용 표의 예시 10줄(charPr 27, 맑은고딕 11pt·파랑)을 랜덤 10개로 교체 + 검정색
+// 업무내용 표: charPr 27 활동 항목 run(헤더 2개 제외)을 순서대로 랜덤 10개로 교체
+// (검정·11pt·함초롬바탕·정자체로 통일, '- ' 중복 없이)
 function fillSafetyActivities(xml, cloner) {
   const pool = SAFETY_ACTIVITIES.slice();
   for (let i = pool.length - 1; i > 0; i--) {           // Fisher–Yates 셔플
@@ -371,17 +406,12 @@ function fillSafetyActivities(xml, cloner) {
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   const picked = pool.slice(0, 10);
-  const black = cloner.black(27);                        // 맑은고딕 11pt 유지 + 검정
-  // 템플릿 예시 항목을 식별하는 핵심어(순서 보존)
-  const cores = [
-    "교육시설 안전점검 및 교육", "전염병 확산 방지를 위한 발열체크",
-    "교구 및 장비 안전 점검", "교내 통학로", "위급 발생 대비를 위한 학부모",
-    "비상 시 대비 점검", "화재 및 위생 안전 점검", "가스, 전기, 소방시설",
-    "계단 미끄럼방지", "피난 및 방화설비"
-  ];
-  cores.forEach((core, i) => {
-    const re = new RegExp(`(<hp:run charPrIDRef=")27("><hp:t>)[^<]*${rgEsc(core)}[^<]*(</hp:t></hp:run>)`);
-    xml = xml.replace(re, `$1${black}$2- ${xmlEsc(picked[i])}$3`);
+  const black = cloner.black(27);
+  const skip = new Set(["(안전관리 업무 활동)", "(예시를 참고하여 작성할 것)"]);
+  let i = 0;
+  xml = xml.replace(/<hp:run charPrIDRef="27"><hp:t>([^<]*)<\/hp:t><\/hp:run>/g, (m, t) => {
+    if (skip.has(t.trim()) || i >= picked.length) return m;
+    return `<hp:run charPrIDRef="${black}"><hp:t>- ${xmlEsc(picked[i++])}</hp:t></hp:run>`;
   });
   return xml;
 }
