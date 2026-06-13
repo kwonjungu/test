@@ -210,7 +210,7 @@ function fillPlaceholders(xml, cloner, data) {
   return xml;
 }
 
-async function buildPlaceholderHwpx(templateBuf, data, preprocess) {
+async function buildPlaceholderHwpx(templateBuf, data, preprocess, postprocess) {
   const zip = await JSZip.loadAsync(templateBuf);
   const secPath = "Contents/section0.xml";
   const hdrPath = "Contents/header.xml";
@@ -220,6 +220,7 @@ async function buildPlaceholderHwpx(templateBuf, data, preprocess) {
 
   if (preprocess) xml = preprocess(xml, data);   // 회차 블록 확장/삭제 등
   xml = fillPlaceholders(xml, cloner, data);
+  if (postprocess) xml = postprocess(xml, cloner, data);
 
   zip.file(secPath, xml);
   zip.file(hdrPath, header.xml);   // 검정 charPr 복제본 반영
@@ -304,9 +305,67 @@ export function buildReportHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data, expandReportRounds);
 }
 
+// 안전관리 업무 활동 풀(30개) — 예시와 비슷한 톤/길이. 매번 랜덤 10개 사용.
+const SAFETY_ACTIVITIES = [
+  "교육시설 안전점검 및 교육",
+  "전염병 확산 방지를 위한 발열체크 및 손소독 실시",
+  "교구 및 장비 안전 점검",
+  "교내 통학로 및 차량통행로 안전 확인 및 귀가 지도",
+  "위급 발생 대비를 위한 학부모 비상연락망 관리",
+  "비상 시 대비 점검(소화기, 비상구, 화재감지기 등)",
+  "화재 및 위생 안전 점검",
+  "가스, 전기, 소방시설 점검",
+  "계단 미끄럼방지 및 파손 안전 점검",
+  "피난 및 방화설비 안전 점검",
+  "출입구 및 복도 통행로 안전 확보",
+  "응급상황 대비 구급함 및 비상약품 점검",
+  "교실 내 콘센트 및 멀티탭 전기 안전 점검",
+  "책상·의자 등 집기류 모서리 안전 점검",
+  "바닥 미끄럼 및 걸림 위험 점검",
+  "창문 및 방충망 추락 방지 점검",
+  "교육 중 안전사고 예방 순회 지도",
+  "학생 등·하교 동선 안전 지도",
+  "식음료 및 다과 위생 상태 확인",
+  "알레르기·기저질환 학생 사전 파악 및 관리",
+  "비상대피로 및 대피경로 사전 확인",
+  "소방시설 위치 안내 및 사용법 숙지",
+  "냉·난방기 작동 상태 및 환기 관리",
+  "정수기 및 급수시설 위생 점검",
+  "교내 위험구역 출입 통제 및 안내",
+  "안전사고 발생 시 대응 절차 숙지",
+  "감염병 예방 수칙 안내 및 관리",
+  "교구 정리정돈 및 보관 상태 점검",
+  "외부인 출입 통제 및 방문객 관리",
+  "일일 안전점검 결과 기록 및 보고"
+];
+
+// 업무내용 표의 예시 10줄(charPr 27, 맑은고딕 11pt·파랑)을 랜덤 10개로 교체 + 검정색
+function fillSafetyActivities(xml, cloner) {
+  const pool = SAFETY_ACTIVITIES.slice();
+  for (let i = pool.length - 1; i > 0; i--) {           // Fisher–Yates 셔플
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const picked = pool.slice(0, 10);
+  const black = cloner.black(27);                        // 맑은고딕 11pt 유지 + 검정
+  // 템플릿 예시 항목을 식별하는 핵심어(순서 보존)
+  const cores = [
+    "교육시설 안전점검 및 교육", "전염병 확산 방지를 위한 발열체크",
+    "교구 및 장비 안전 점검", "교내 통학로", "위급 발생 대비를 위한 학부모",
+    "비상 시 대비 점검", "화재 및 위생 안전 점검", "가스, 전기, 소방시설",
+    "계단 미끄럼방지", "피난 및 방화설비"
+  ];
+  cores.forEach((core, i) => {
+    const re = new RegExp(`(<hp:run charPrIDRef=")27("><hp:t>)[^<]*${rgEsc(core)}[^<]*(</hp:t></hp:run>)`);
+    xml = xml.replace(re, `$1${black}$2- ${xmlEsc(picked[i])}$3`);
+  });
+  return xml;
+}
+
 // 안전업무일지 (안전관리자 서류) — 프로그램/기간/운영일시/운영기관/안전관리자 성명 채움
+// + 업무내용 30개 풀에서 랜덤 10개(검정·맑은고딕 11pt)
 export function buildSafetyLogHwpx(templateBuf, data) {
-  return buildPlaceholderHwpx(templateBuf, data);
+  return buildPlaceholderHwpx(templateBuf, data, null, fillSafetyActivities);
 }
 
 // 안전관리 서약서 (3-2) — 캠프명/일시·장소/현장안전담당(안전관리자)/서약일 채움
