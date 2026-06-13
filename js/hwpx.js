@@ -588,7 +588,14 @@ function fillPayBody(xml, cloner, data) {
   xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
   xml = xml.replace(/<hp:t>\((?:기본|특화|AI특화)\/[^<]*<\/hp:t>/g, "<hp:t></hp:t>");
 
-  if (data.program) xml = fillFieldBlack(xml, cloner, "해당 프로그램 복사하여 붙여넣기", data.program);
+  if (data.program) {
+    // "해당 프로그램 복사하여 붙여넣기" 뒤에 필드컨트롤(<hp:ctrl>)이 붙어 run이 안 닫힘 →
+    // run 여는 부분만 매칭해 charPr 검정 + 텍스트 교체(뒤 ctrl 보존)
+    let done = false;
+    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>해당 프로그램 복사하여 붙여넣기<\/hp:t>/g,
+      (m, cid) => { done = true; return `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.program)}</hp:t>`; });
+    if (!done) xml = fillFieldBlack(xml, cloner, "해당 프로그램 복사하여 붙여넣기", data.program);
+  }
   if (data.school) xml = fillFieldBlack(xml, cloner, " 캠프가 진행되는 학교명", " " + data.school);
   if (data.eduTarget) xml = fillFieldBlack(xml, cloner, " 초등 저학년/초등 고학년/중등/고등/다문화", " " + data.eduTarget);
 
@@ -617,7 +624,11 @@ export async function buildPayApplicationHwpx(templateBuf, data) {
     " (오전) 6/28 60,000원 X 1학급 X 4차시"
   ];
   xml = fillPayBody(xml, cloner, { ...data, slots, amountSlot: data.amountSlot || " N00,000원" });
-  if (data.lastDate) xml = xml.replace(/2026년 #월 #일/g, xmlEsc(data.lastDate));
+  if (data.lastDate) {
+    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>2026년 #월 #일<\/hp:t>/g,
+      (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
+    xml = xml.replace(/2026년 #월 #일/g, xmlEsc(data.lastDate));
+  }
 
   zip.file(path, xml);
   zip.file("Contents/header.xml", header.xml);
@@ -638,8 +649,12 @@ export async function buildSafetyPayHwpx(templateBuf, data) {
     " 6/22 20,000원 X 1학급 X 3or4차시"
   ];
   xml = fillPayBody(xml, cloner, { ...data, slots, amountSlot: " N00,000원" });
-  // 날짜 자리표시자 "2026년  월  일" (공백 2칸)
-  if (data.lastDate) xml = xml.replace(/<hp:t>2026년\s+월\s+일<\/hp:t>/g, `<hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
+  // 날짜 자리표시자 "2026년  월  일" (공백 2칸) — run charPr 검정 적용
+  if (data.lastDate) {
+    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>2026년\s+월\s+일<\/hp:t>/g,
+      (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
+    xml = xml.replace(/<hp:t>2026년\s+월\s+일<\/hp:t>/g, `<hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
+  }
 
   zip.file(path, xml);
   zip.file("Contents/header.xml", header.xml);
@@ -652,42 +667,35 @@ export async function buildSafetyContractHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
+  const header = { xml: await zip.file("Contents/header.xml").async("string") };
+  const cloner = makeBlackCloner(header);
   const list = data.dateList || [];
+  // 텍스트가 X인 run을 검정·함초롬·11pt로 교체하는 헬퍼
+  const repl = (old, makeText) => {
+    xml = xml.replace(new RegExp(`<hp:run charPrIDRef="(\\d+)"><hp:t>${old}</hp:t></hp:run>`, "g"),
+      (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${makeText()}</hp:t></hp:run>`);
+  };
 
-  // 근로자 성명 / 근무장소
-  if (data.name) xml = xml.replace(/<hp:t>ㅇㅇㅇ<\/hp:t>/g, `<hp:t>${xmlEsc(data.name)}</hp:t>`);
-  if (data.school) xml = xml.replace(/<hp:t>ㅇㅇ학교<\/hp:t>/g, `<hp:t>${xmlEsc(data.school)}</hp:t>`);
-
-  // 근로계약날짜: "2026년 ㅇ월 ㅇ일, 2026년 ㅇ월 ㅇ일" → 시작일, 종료일
+  if (data.name) repl("ㅇㅇㅇ", () => xmlEsc(data.name));
+  if (data.school) repl("ㅇㅇ학교", () => xmlEsc(data.school));
   if (data.firstDate && data.lastDate) {
     const f = data.firstDate, l = data.lastDate;
-    xml = xml.replace(/<hp:t>2026년 ㅇ월 ㅇ일, 2026년 ㅇ월 ㅇ일<\/hp:t>/g,
-      `<hp:t>${xmlEsc(`2026년 ${f.m}월 ${f.d}일, 2026년 ${l.m}월 ${l.d}일`)}</hp:t>`);
+    repl("2026년 ㅇ월 ㅇ일, 2026년 ㅇ월 ㅇ일", () => xmlEsc(`2026년 ${f.m}월 ${f.d}일, 2026년 ${l.m}월 ${l.d}일`));
   }
-
-  // 근로일자(요일): 4개 날짜 컬럼을 실제 일자로 (없으면 비움)
+  // 근로일자(요일): 4개 날짜 컬럼
   let di = 0;
-  xml = xml.replace(/<hp:t>2026\/#\/#\([월화수목]\)<\/hp:t>/g, () => {
-    const d = list[di++];
-    return d ? `<hp:t>${xmlEsc(`2026/${d.m}/${d.d}(${d.wd})`)}</hp:t>` : "<hp:t></hp:t>";
-  });
-  // 총 근로시간: 오전(예시 09:00~12:10) / 오후(14:20~15:40) 각 4칸
+  repl("2026/#/#\\([월화수목]\\)", () => { const d = list[di++]; return d ? xmlEsc(`2026/${d.m}/${d.d}(${d.wd})`) : ""; });
+  // 총 근로시간: 오전 / 오후 각 4칸
   let ai = 0;
-  xml = xml.replace(/<hp:t>\(예시\)09:00~12:10<\/hp:t>/g, () => {
-    const d = list[ai++];
-    return `<hp:t>${d && d.amStart ? xmlEsc(`${d.amStart}~${d.amEnd}`) : ""}</hp:t>`;
-  });
+  repl("\\(예시\\)09:00~12:10", () => { const d = list[ai++]; return d && d.amStart ? xmlEsc(`${d.amStart}~${d.amEnd}`) : ""; });
   let pi = 0;
-  xml = xml.replace(/<hp:t>14:20~15:40<\/hp:t>/g, () => {
-    const d = list[pi++];
-    return `<hp:t>${d && d.pmStart ? xmlEsc(`${d.pmStart}~${d.pmEnd}`) : ""}</hp:t>`;
-  });
-
-  // 임금(N00,000) / 계약 체결월(캠프 해당 월 1일)
-  if (data.amount) xml = xml.replace(/<hp:t>N00,000<\/hp:t>/g, `<hp:t>${xmlEsc(data.amount)}</hp:t>`);
-  if (data.month) xml = xml.replace(/<hp:t>2026년 월 1일<\/hp:t>/g, `<hp:t>${xmlEsc(`2026년 ${data.month}월 1일`)}</hp:t>`);
+  repl("14:20~15:40", () => { const d = list[pi++]; return d && d.pmStart ? xmlEsc(`${d.pmStart}~${d.pmEnd}`) : ""; });
+  // 임금 / 계약 체결월
+  if (data.amount) repl("N00,000", () => xmlEsc(data.amount));
+  if (data.month) repl("2026년 월 1일", () => xmlEsc(`2026년 ${data.month}월 1일`));
 
   zip.file(path, xml);
+  zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
 }
 
@@ -721,9 +729,11 @@ export async function buildMulticulturalConfirmHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
+  const header = { xml: await zip.file("Contents/header.xml").async("string") };
+  const cloner = makeBlackCloner(header);
   const names = data.names || [];
 
-  // 이름 표: col1/col4/col8 × row5~14 (각 10명, 총 30명) 빈 run에 주입
+  // 이름 표: col1/col4/col8 × row5~14 (각 10명, 총 30명) 빈 run에 주입(검정·함초롬11)
   xml = xml.replace(/<hp:tc\b[\s\S]*?<\/hp:tc>/g, (tc) => {
     const a = tc.match(/colAddr="(\d+)" rowAddr="(\d+)"/);
     if (!a) return tc;
@@ -736,13 +746,15 @@ export async function buildMulticulturalConfirmHwpx(templateBuf, data) {
     }
     if (idx >= 0 && idx < names.length && names[idx]) {
       return tc.replace(/<hp:run charPrIDRef="(\d+)"\/>/,
-        `<hp:run charPrIDRef="$1"><hp:t>${xmlEsc(names[idx])}</hp:t></hp:run>`);
+        (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(names[idx])}</hp:t></hp:run>`);
     }
     return tc;
   });
 
   // 학교명(값 셀) + 직인줄 "초등학교장 (직인)"
   if (data.school) {
+    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>초등학교<\/hp:t><\/hp:run>/g,
+      (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.school)}</hp:t></hp:run>`);
     xml = xml.replace(/<hp:t>초등학교<\/hp:t>/g, `<hp:t>${xmlEsc(data.school)}</hp:t>`);
     const base = data.school.replace(/초등학교$/, "");
     xml = xml.replace(/<hp:t>초등학교장 \(직인\)<\/hp:t>/g, `<hp:t>${xmlEsc(base)}초등학교장 (직인)</hp:t>`);
@@ -753,8 +765,13 @@ export async function buildMulticulturalConfirmHwpx(templateBuf, data) {
       `<hp:t>위 학생들이 본교에 재학중인 다문화가정 학생(총 ${data.count}명)임을 확인합니다.</hp:t>`);
   }
   // 확인 날짜
-  if (data.date) xml = xml.replace(/<hp:t>2026년\s+월\s+일<\/hp:t>/g, `<hp:t>${xmlEsc(data.date)}</hp:t>`);
+  if (data.date) {
+    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>2026년\s+월\s+일<\/hp:t>/g,
+      (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.date)}</hp:t>`);
+    xml = xml.replace(/<hp:t>2026년\s+월\s+일<\/hp:t>/g, `<hp:t>${xmlEsc(data.date)}</hp:t>`);
+  }
 
   zip.file(path, xml);
+  zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
 }
