@@ -66,23 +66,22 @@ export class RegionResolver {
     const name = school.trim();
     if (this.map[name]) return { sido: this.map[name], source: "bundle" };
 
-    // NEIS 조회
-    if (this.neisKey) {
-      if (this.cache[name]) return { sido: this.cache[name], source: "neis(cache)" };
-      try {
-        const url = `https://open.neis.go.kr/hub/schoolInfo?KEY=${encodeURIComponent(this.neisKey)}&Type=json&pIndex=1&pSize=5&SCHUL_NM=${encodeURIComponent(name)}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        const row = data?.schoolInfo?.[1]?.row?.[0];
-        if (row?.ATPT_OFCDC_SC_NM) {
-          const sido = officeToSido(row.ATPT_OFCDC_SC_NM);
-          this.cache[name] = sido;
-          this.learn(name, sido);
-          return { sido, source: "neis" };
-        }
-      } catch (e) {
-        console.warn("NEIS 조회 실패", name, e);
+    // NEIS 조회 (키 없이도 동작. 키가 있으면 호출 한도가 늘어남)
+    if (this.cache[name]) return { sido: this.cache[name], source: "neis(cache)" };
+    try {
+      const keyParam = this.neisKey ? `KEY=${encodeURIComponent(this.neisKey)}&` : "";
+      const url = `https://open.neis.go.kr/hub/schoolInfo?${keyParam}Type=json&pIndex=1&pSize=5&SCHUL_NM=${encodeURIComponent(name)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const row = data?.schoolInfo?.[1]?.row?.[0];
+      if (row?.ATPT_OFCDC_SC_NM) {
+        const sido = officeToSido(row.ATPT_OFCDC_SC_NM);
+        this.cache[name] = sido;
+        this.learn(name, sido);
+        return { sido, source: "neis" };
       }
+    } catch (e) {
+      console.warn("NEIS 조회 실패", name, e);
     }
     return { sido: "", source: "manual" };  // 수동 선택 필요
   }

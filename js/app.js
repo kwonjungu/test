@@ -36,12 +36,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // 지역 자동조회 안내
-  if (resolver.neisKey) {
-    setStatus("neisStatus", "NEIS 자동조회 사용 가능 — 학교명으로 지역이 자동 입력됩니다.", "ok");
-  } else {
-    setStatus("neisStatus", "NEIS 키 미설정 — 번들 매핑/수동 선택으로 동작 (js/config.js에 키를 넣으면 전국 자동조회).", "warn");
-  }
+  // 지역 자동조회 안내 (NEIS는 키 없이 동작)
+  setStatus("neisStatus",
+    "NEIS 자동조회 사용 중 — 학교명으로 전국 학교의 지역이 자동 입력됩니다." +
+    (resolver.neisKey ? " (API 키 적용)" : ""), "ok");
 
   $("rosterFile").addEventListener("change", onRoster);
   $("templateFile").addEventListener("change", onTemplate);
