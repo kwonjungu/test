@@ -309,6 +309,33 @@ export function buildSafetyLogHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data);
 }
 
+// 프로그램 운영 사례집 (붙임2 후기 모음) — 프로그램명/운영장소/운영일시 채움 (후기 본문은 수기)
+// data: { program, school, days:[{date:{m,d}, start, end}], year }
+export async function buildCaseBookHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  const header = { xml: await zip.file("Contents/header.xml").async("string") };
+  const cloner = makeBlackCloner(header);
+  const days = (data.days || []).filter(d => d && d.date);
+  const year = data.year || 2026;
+  const first = days[0]?.date, last = days[days.length - 1]?.date;
+
+  if (data.program) xml = fillFieldBlack(xml, cloner, "해당 프로그램을 복사하여 붙여 넣어주세요", data.program);
+  if (data.school) xml = fillFieldBlack(xml, cloner, "교육장소를 작성해주세요", data.school);
+  if (first && last) {
+    const fd = days[0];
+    const period = `${year}년 ${pad2(first.m)}월 ${pad2(first.d)}일 ~ ${pad2(last.m)}월 ${pad2(last.d)}일`;
+    // 운영일시 자리표시자: "00시" 앞 공백 2칸
+    xml = fillFieldBlack(xml, cloner, "2026년 00월 00일 ~ 00월 00일 /  00시 00분 ~ 00시 00분",
+      `${period} / ${fmtTime(fd.start)} ~ ${fmtTime(fd.end)}`);
+  }
+
+  zip.file(path, xml);
+  zip.file("Contents/header.xml", header.xml);
+  return packageHwpx(zip);
+}
+
 // 지급신청서 공통: 프로그램/교육장소/교육대상/산출내역/지급액 채우기
 // data: { program, school, eduTarget, payoutLines:[..], amount:"540,000", slots:[..], amountSlot }
 function fillPayBody(xml, cloner, data) {
