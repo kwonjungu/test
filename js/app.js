@@ -3,7 +3,7 @@ import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, fmtDate, parseSchedule, programCore
 } from "./convert.js";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx } from "./hwpx.js";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx } from "./hwpx.js";
 import { NEIS_API_KEY } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
@@ -28,7 +28,11 @@ let equipTemplateBuf = null;   // 교구관리대장 hwpx 템플릿
 let reportTemplateBuf = null;  // 결과보고서 hwpx 템플릿
 let safetyTemplateBuf = null;  // 안전업무일지 hwpx 템플릿
 let checklistTemplateBuf = null; // 안전체크리스트 hwpx 템플릿
-let payTemplateBuf = null;     // 강사료 지급신청서 hwpx 템플릿
+let payTemplateBuf = null;     // (보조) 강사료 지급신청서 hwpx 템플릿
+let juPayTemplateBuf = null;   // (주) 외부전문가 기술활용비 지급신청서 hwpx 템플릿
+let safetyPayTemplateBuf = null;      // (안전) 단기근로자 지급신청서 hwpx 템플릿
+let safetyContractTemplateBuf = null; // (안전) 단기 근로계약서 hwpx 템플릿
+let multiTemplateBuf = null;   // 다문화학생 학교장 확인서 hwpx 템플릿
 let parsedBlocks = null;       // parseRoster 결과 (실명 포함)
 let lastClasses = null;        // 변환된 등록양식 결과
 let rosterBuf = null;
@@ -57,6 +61,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     .then(b => { checklistTemplateBuf = b; }).catch(() => {});
   fetch("templates/강사료지급신청서양식.hwpx").then(r => r.arrayBuffer())
     .then(b => { payTemplateBuf = b; }).catch(() => {});
+  fetch("templates/주강사료지급신청서양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { juPayTemplateBuf = b; }).catch(() => {});
+  fetch("templates/안전단기근로자지급신청서양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { safetyPayTemplateBuf = b; }).catch(() => {});
+  fetch("templates/안전단기근로계약서양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { safetyContractTemplateBuf = b; }).catch(() => {});
+  fetch("templates/다문화학교장확인서양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { multiTemplateBuf = b; }).catch(() => {});
 
   // 시·도 드롭다운 채우기
   const sidoSel = $("schoolSido");
@@ -88,6 +100,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("downloadSafetyBtn").addEventListener("click", onDownloadSafety);
   $("downloadChecklistBtn").addEventListener("click", onDownloadChecklist);
   $("downloadPayBtn").addEventListener("click", onDownloadPay);
+  $("downloadJuPayBtn").addEventListener("click", onDownloadJuPay);
+  $("downloadSafetyPayBtn").addEventListener("click", onDownloadSafetyPay);
+  $("downloadSafetyContractBtn").addEventListener("click", onDownloadSafetyContract);
+  $("downloadMultiBtn").addEventListener("click", onDownloadMulti);
 });
 
 async function onSchoolSearch() {
@@ -295,6 +311,11 @@ async function onConvert() {
   $("downloadSafetyBtn").disabled = total === 0 || !safetyTemplateBuf;
   $("downloadChecklistBtn").disabled = total === 0 || !checklistTemplateBuf;
   $("downloadPayBtn").disabled = total === 0 || !payTemplateBuf;
+  $("downloadJuPayBtn").disabled = total === 0 || !juPayTemplateBuf;
+  $("downloadSafetyPayBtn").disabled = total === 0 || !safetyPayTemplateBuf;
+  $("downloadSafetyContractBtn").disabled = total === 0 || !safetyContractTemplateBuf;
+  const anySocial = lastClasses.some(c => (c.settings || {}).social);
+  $("downloadMultiBtn").disabled = total === 0 || !multiTemplateBuf || !anySocial;
   updateEquipBtn();   // 교구관리대장은 주강사 있을 때만 활성
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
@@ -506,6 +527,171 @@ async function onDownloadPay() {
     eduTarget, payoutLines: lines, amount, lastDate, year: 2026
   });
   triggerDownload(blob, `강사료지급신청서_${ownerTag((c0.settings || {}).assistantTeacher)}.hwpx`);
+}
+
+// (주) 외부전문가 기술활용비 지급신청서 — 캠프 1건당 1부, 주강사. 단가 75,000원/차시
+async function onDownloadJuPay() {
+  if (!lastClasses || !lastClasses.length || !juPayTemplateBuf) return;
+  const c0 = lastClasses[0];
+  const blk0 = parsedBlocks.find(b => b.sheet === c0.className) || {};
+  const UNIT = 75000;
+
+  let totalChasi = 0, last = null;
+  const lines = [];
+  for (const c of lastClasses) {
+    const st = c.settings || {};
+    const ch = st.chasi || 0;
+    totalChasi += ch;
+    const ampm = /오후/.test(c.className) ? "오후" : "오전";
+    const cdays = (st.days || []).map(d => d.date).filter(Boolean);
+    const cl = cdays[cdays.length - 1];
+    if (cl) lines.push(`(${ampm}) ${cl.m}/${cl.d} ${UNIT.toLocaleString()}원 X 1학급 X ${ch}차시`);
+    for (const d of (st.days || [])) {
+      if (d.date && (!last || d.date.m * 100 + d.date.d > last.m * 100 + last.d)) last = d.date;
+    }
+  }
+  const amount = (UNIT * totalChasi).toLocaleString();
+  const lastDate = last ? `2026년 ${last.m}월 ${last.d}일` : "";
+  const eduTarget = EDU_MAP[blk0.courseLevel] || blk0.courseLevel || "";
+
+  const blob = await buildPayApplicationHwpx(juPayTemplateBuf, {
+    program: (c0.settings && c0.settings.program) || c0.program || "",
+    school: c0.school || "",
+    eduTarget, payoutLines: lines, amount, lastDate, year: 2026,
+    slots: [
+      " (오전) 6/21 100,000원 X 1학급 X 4차시",
+      " (오후) 6/21 100,000원 X 1학급 X 4차시",
+      " (오전) 6/28 100,000원 X 1학급 X 4차시"
+    ],
+    amountSlot: " N,000,000원"
+  });
+  triggerDownload(blob, `주강사료지급신청서_${ownerTag((c0.settings || {}).mainTeacher)}.hwpx`);
+}
+
+const SAFE_UNIT = 20000;        // 안전 단기근로자 차시당 단가
+const SAFE_DAY_CAP = 60000;     // 반(班) 단위 1일 한도 (= 3차시분)
+const WD = ["일", "월", "화", "수", "목", "금", "토"];
+
+// 안전 정산: 반별 일별차시(=총차시/일수) → 일별 min(차시×20,000, 60,000), 반별·전체 합산
+function calcSafetyPay() {
+  let total = 0;
+  const lines = [];
+  let last = null;
+  for (const c of lastClasses) {
+    const st = c.settings || {};
+    const days = (st.days || []).filter(d => d.date);
+    const nd = days.length;
+    if (!nd) continue;
+    const perDay = (st.chasi || 0) / nd;                  // 일별 차시
+    const dayAmt = Math.min(perDay * SAFE_UNIT, SAFE_DAY_CAP);
+    total += dayAmt * nd;
+    const ampm = /오후/.test(c.className) ? "(오후)" : "(오전)";
+    const f = days[0].date, l = days[nd - 1].date;
+    const perDayTxt = Number.isInteger(perDay) ? perDay : perDay.toFixed(1);
+    lines.push(`${ampm} ${f.m}/${f.d}~${l.m}/${l.d} ${SAFE_UNIT.toLocaleString()}원 X 1학급 X ${perDayTxt}차시 (1일 한도 ${SAFE_DAY_CAP.toLocaleString()}원)`);
+    for (const d of days) if (!last || d.date.m * 100 + d.date.d > last.m * 100 + last.d) last = d.date;
+  }
+  return { total, lines, last };
+}
+
+// 안전관리자 성명 확보 (비면 입력받아 패널에도 반영). 취소 시 null
+function ensureSafetyManager() {
+  for (const c of lastClasses) {
+    const st = c.settings || (c.settings = {});
+    if (!st.safetyManager) {
+      const v = prompt(`[${c.className}] 안전 서류의 안전관리자 성명을 입력하세요.`, "");
+      if (v === null) return null;
+      st.safetyManager = v.trim();
+      const inp = document.querySelector(`#safety_${cssId(c.className)}`);
+      if (inp) inp.value = st.safetyManager;
+    }
+  }
+  return (lastClasses.find(c => (c.settings || {}).safetyManager) || {}).settings.safetyManager || "";
+}
+
+// (안전) 단기근로자 지급신청서 — 캠프 1건당 1부
+async function onDownloadSafetyPay() {
+  if (!lastClasses || !lastClasses.length || !safetyPayTemplateBuf) return;
+  const nm = ensureSafetyManager();
+  if (nm === null) return;
+  const c0 = lastClasses[0];
+  const blk0 = parsedBlocks.find(b => b.sheet === c0.className) || {};
+  const { total, lines, last } = calcSafetyPay();
+  const lastDate = last ? `2026년 ${last.m}월 ${last.d}일` : "";
+  const eduTarget = EDU_MAP[blk0.courseLevel] || blk0.courseLevel || "";
+
+  const blob = await buildSafetyPayHwpx(safetyPayTemplateBuf, {
+    program: (c0.settings && c0.settings.program) || c0.program || "",
+    school: c0.school || "",
+    eduTarget, payoutLines: lines, amount: total.toLocaleString(), lastDate
+  });
+  triggerDownload(blob, `안전단기근로자지급신청서_${ownerTag(nm)}.hwpx`);
+}
+
+// (안전) 단기 근로계약서 — 캠프 1건당 1부
+async function onDownloadSafetyContract() {
+  if (!lastClasses || !lastClasses.length || !safetyContractTemplateBuf) return;
+  const nm = ensureSafetyManager();
+  if (nm === null) return;
+  const c0 = lastClasses[0];
+  const { total } = calcSafetyPay();
+
+  // 날짜별 오전/오후 시간 병합
+  const byDate = new Map();
+  for (const c of lastClasses) {
+    const st = c.settings || {};
+    const isPM = /오후/.test(c.className);
+    for (const d of (st.days || [])) {
+      if (!d.date) continue;
+      const k = d.date.m * 100 + d.date.d;
+      const e = byDate.get(k) || { m: d.date.m, d: d.date.d };
+      if (isPM) { e.pmStart = d.start; e.pmEnd = d.end; }
+      else { e.amStart = d.start; e.amEnd = d.end; }
+      byDate.set(k, e);
+    }
+  }
+  const dateList = [...byDate.values()].sort((a, b) => a.m - b.m || a.d - b.d)
+    .map(e => ({ ...e, wd: WD[new Date(2026, e.m - 1, e.d).getDay()] }));
+  const first = dateList[0], lastD = dateList[dateList.length - 1];
+
+  const blob = await buildSafetyContractHwpx(safetyContractTemplateBuf, {
+    name: nm,
+    school: c0.school || "",
+    dateList,
+    firstDate: first, lastDate: lastD,
+    amount: total.toLocaleString(),
+    month: first ? first.m : ""
+  });
+  triggerDownload(blob, `안전단기근로계약서_${ownerTag(nm)}.hwpx`);
+}
+
+// 다문화학생 학교장 확인서 — 다문화 체크된 클래스별, 메모에 '다문화' 표시된 학생 명단
+async function onDownloadMulti() {
+  if (!lastClasses || !lastClasses.length || !multiTemplateBuf) return;
+  const targets = lastClasses.filter(c => (c.settings || {}).social);
+  if (!targets.length) { alert("다문화/사회적배려 학급으로 체크된 클래스가 없습니다."); return; }
+
+  let made = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const c = targets[i];
+    const blk = parsedBlocks.find(b => b.sheet === c.className) || {};
+    const names = (blk.students || []).filter(s => /다문화/.test(s.memo || "")).map(s => s.name);
+    if (!names.length) {
+      alert(`[${c.className}] 메모(특이사항)에 '다문화'로 표시된 학생이 없어 건너뜁니다.`);
+      continue;
+    }
+    const st = c.settings || {};
+    const days = (st.days || []).map(d => d.date).filter(Boolean);
+    const f = days[0];
+    const date = f ? `2026년 ${f.m}월 ${f.d}일` : "";
+    const blob = await buildMulticulturalConfirmHwpx(multiTemplateBuf, {
+      school: c.school || "", names, count: names.length, date
+    });
+    triggerDownload(blob, `다문화학교장확인서_${safeName(c.school || rosterName)}_${safeName(c.className)}.hwpx`);
+    made++;
+    if (i < targets.length - 1) await sleep(350);
+  }
+  if (!made) alert("생성된 확인서가 없습니다. 명단 메모에 '다문화' 표시를 확인하세요.");
 }
 
 // ---- 유틸 ----
