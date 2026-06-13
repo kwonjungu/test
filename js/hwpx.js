@@ -77,6 +77,9 @@ export async function buildReceiptHwpx(templateBuf, { names, chasi, dates }) {
     }
   }
 
+  // 수령대장 파란 글씨(일차 헤더·안내문 등)를 모두 검정으로
+  header.xml = header.xml.replace(/(<hh:charPr\b[^>]*\btextColor=")#0000FF(")/gi, "$1#000000$2");
+
   zip.file(path, xml);
   zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
@@ -167,6 +170,23 @@ function makeBlackCloner(header) {
       let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
       clone = color ? clone.replace(/textColor="[^"]+"/, 'textColor="#000000"')
                     : clone.replace(/(<hh:charPr id="\d+")/, '$1 textColor="#000000"');
+      header.xml = header.xml.replace(block, block + clone)
+        .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
+      cache[key] = newId;
+      return newId;
+    },
+    // 글자 크기만 변경(색·폰트·볼드 유지) — 제목 크기 보정용
+    resize(cid, h) {
+      const key = "r" + cid + "_" + h;
+      if (cache[key] != null) return cache[key];
+      const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
+      if (!m) return cid;
+      const block = m[0];
+      if (new RegExp(`\\bheight="${h}"`).test(block)) { cache[key] = cid; return cid; }
+      const newId = ++maxId;
+      let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
+      clone = /\bheight="\d+"/.test(clone) ? clone.replace(/\bheight="\d+"/, `height="${h}"`)
+                                           : clone.replace(/(<hh:charPr id="\d+")/, `$1 height="${h}"`);
       header.xml = header.xml.replace(block, block + clone)
         .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
       cache[key] = newId;
@@ -379,9 +399,18 @@ function expandReportRounds(xml, data) {
   return xml.slice(0, gisa.start) + clones + xml.slice(gisa.start);
 }
 
+// 교구관리대장 부제목 18pt 보정 (양식 원본 16pt → 18pt). 텍스트 노드 보존(앞뒤 공백 유지)
+function fillEquipTitles(xml, cloner) {
+  for (const title of ["2026 디지털새싹 사업", "범용성 및 일회성 교구 관리 대장"]) {
+    xml = xml.replace(new RegExp(`<hp:run charPrIDRef="(\\d+)">(<hp:t>${rgEsc(title)}[^<]*</hp:t>)</hp:run>`, "g"),
+      (m, cid, inner) => `<hp:run charPrIDRef="${cloner.resize(cid, 1800)}">${inner}</hp:run>`);
+  }
+  return xml;
+}
+
 // 교구 관리대장
 export function buildEquipmentLedgerHwpx(templateBuf, data) {
-  return buildPlaceholderHwpx(templateBuf, data);
+  return buildPlaceholderHwpx(templateBuf, data, null, fillEquipTitles);
 }
 
 // 결과보고서 '4. 프로그램 추진 의견'의 주/보조/안전 라벨 단락 뒤에 AI 의견 단락 삽입
