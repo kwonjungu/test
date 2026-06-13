@@ -309,6 +309,42 @@ export function buildSafetyLogHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data);
 }
 
+// 외부 전문가 기술 활용비 지급신청서 (보조강사용) — 캠프 1건당 1부
+// data: { program, school, eduTarget, payoutLines:[..], amount:"540,000", lastDate:"2026년 6월 9일", year }
+export async function buildPayApplicationHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  const header = { xml: await zip.file("Contents/header.xml").async("string") };
+  const cloner = makeBlackCloner(header);
+
+  // 드롭다운 메모 비우기
+  xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
+  xml = xml.replace(/<hp:t>\((?:기본|특화|AI특화)\/[^<]*<\/hp:t>/g, "<hp:t></hp:t>");
+
+  if (data.program) xml = fillFieldBlack(xml, cloner, "해당 프로그램 복사하여 붙여넣기", data.program);
+  if (data.school) xml = fillFieldBlack(xml, cloner, " 캠프가 진행되는 학교명", " " + data.school);
+  if (data.eduTarget) xml = fillFieldBlack(xml, cloner, " 초등 저학년/초등 고학년/중등/고등/다문화", " " + data.eduTarget);
+
+  // 산출내역: 예시 3줄 → 실제 줄(오전/오후)로, 남는 줄 비움
+  const lines = data.payoutLines || [];
+  const slots = [
+    " (오전) 6/21 60,000원 X 1학급 X 4차시",
+    " (오후) 6/21 60,000원 X 1학급 X 4차시",
+    " (오전) 6/28 60,000원 X 1학급 X 4차시"
+  ];
+  slots.forEach((slot, i) => {
+    if (i < lines.length) xml = fillFieldBlack(xml, cloner, slot, " " + lines[i]);
+    else xml = xml.replace(new RegExp(`<hp:t>${rgEsc(slot)}</hp:t>`, "g"), "<hp:t></hp:t>");
+  });
+  if (data.amount) xml = fillFieldBlack(xml, cloner, " N00,000원", ` ${data.amount}원`);
+  if (data.lastDate) xml = xml.replace(/2026년 #월 #일/g, xmlEsc(data.lastDate));
+
+  zip.file(path, xml);
+  zip.file("Contents/header.xml", header.xml);
+  return packageHwpx(zip);
+}
+
 // 운영 전후 안전관리 체크리스트 — 점검책임자(안전관리자)·점검일자만 채움(체크는 수기)
 export async function buildChecklistHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);

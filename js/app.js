@@ -3,7 +3,7 @@ import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, fmtDate, parseSchedule, programCore
 } from "./convert.js";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx } from "./hwpx.js";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx } from "./hwpx.js";
 import { NEIS_API_KEY } from "./config.js";
 
 const $ = (id) => document.getElementById(id);
@@ -28,6 +28,7 @@ let equipTemplateBuf = null;   // 교구관리대장 hwpx 템플릿
 let reportTemplateBuf = null;  // 결과보고서 hwpx 템플릿
 let safetyTemplateBuf = null;  // 안전업무일지 hwpx 템플릿
 let checklistTemplateBuf = null; // 안전체크리스트 hwpx 템플릿
+let payTemplateBuf = null;     // 강사료 지급신청서 hwpx 템플릿
 let parsedBlocks = null;       // parseRoster 결과 (실명 포함)
 let lastClasses = null;        // 변환된 등록양식 결과
 let rosterBuf = null;
@@ -54,6 +55,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     .then(b => { safetyTemplateBuf = b; }).catch(() => {});
   fetch("templates/안전체크리스트양식.hwpx").then(r => r.arrayBuffer())
     .then(b => { checklistTemplateBuf = b; }).catch(() => {});
+  fetch("templates/강사료지급신청서양식.hwpx").then(r => r.arrayBuffer())
+    .then(b => { payTemplateBuf = b; }).catch(() => {});
 
   // 시·도 드롭다운 채우기
   const sidoSel = $("schoolSido");
@@ -84,6 +87,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("downloadReportBtn").addEventListener("click", onDownloadReport);
   $("downloadSafetyBtn").addEventListener("click", onDownloadSafety);
   $("downloadChecklistBtn").addEventListener("click", onDownloadChecklist);
+  $("downloadPayBtn").addEventListener("click", onDownloadPay);
 });
 
 async function onSchoolSearch() {
@@ -290,6 +294,7 @@ async function onConvert() {
   $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
   $("downloadSafetyBtn").disabled = total === 0 || !safetyTemplateBuf;
   $("downloadChecklistBtn").disabled = total === 0 || !checklistTemplateBuf;
+  $("downloadPayBtn").disabled = total === 0 || !payTemplateBuf;
   updateEquipBtn();   // 교구관리대장은 주강사 있을 때만 활성
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
@@ -462,6 +467,42 @@ async function onDownloadChecklist() {
     triggerDownload(blob, `안전체크리스트_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
+}
+
+const EDU_MAP = { "초저": "초등 저학년", "초고": "초등 고학년", "중등": "중등", "고등": "고등", "다문화": "다문화" };
+
+// 강사료 지급신청서 hwpx (보조강사용) — 캠프 1건당 1부, 오전+오후 합산
+async function onDownloadPay() {
+  if (!lastClasses || !lastClasses.length || !payTemplateBuf) return;
+  const c0 = lastClasses[0];
+  const blk0 = parsedBlocks.find(b => b.sheet === c0.className) || {};
+  const UNIT = 45000;   // 차시당 단가
+
+  // 클래스별 산출내역 줄 + 총차시 + 마지막일
+  let totalChasi = 0, last = null;
+  const lines = [];
+  for (const c of lastClasses) {
+    const st = c.settings || {};
+    const ch = st.chasi || 0;
+    totalChasi += ch;
+    const ampm = /오후/.test(c.className) ? "오후" : "오전";
+    const cdays = (st.days || []).map(d => d.date).filter(Boolean);
+    const cl = cdays[cdays.length - 1];
+    if (cl) lines.push(`(${ampm}) ${cl.m}/${cl.d} ${UNIT.toLocaleString()}원 X 1학급 X ${ch}차시`);
+    for (const d of (st.days || [])) {
+      if (d.date && (!last || d.date.m * 100 + d.date.d > last.m * 100 + last.d)) last = d.date;
+    }
+  }
+  const amount = (UNIT * totalChasi).toLocaleString();
+  const lastDate = last ? `2026년 ${last.m}월 ${last.d}일` : "";
+  const eduTarget = EDU_MAP[blk0.courseLevel] || blk0.courseLevel || "";
+
+  const blob = await buildPayApplicationHwpx(payTemplateBuf, {
+    program: (c0.settings && c0.settings.program) || c0.program || "",
+    school: c0.school || "",
+    eduTarget, payoutLines: lines, amount, lastDate, year: 2026
+  });
+  triggerDownload(blob, `강사료지급신청서_${safeName(rosterName)}.hwpx`);
 }
 
 // ---- 유틸 ----
