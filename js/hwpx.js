@@ -153,6 +153,11 @@ function fillPlaceholders(xml, cloner, data) {
   xml = removeParagraphWith(xml, "*일차별 교육일시 모두 작성");
   xml = removeParagraphWith(xml, "* 주강사 성함 및 서명 해주세요.");
 
+  // 드롭다운 안내/옵션 목록 메모 텍스트 비우기 (MEMO 필드 구조는 보존 → 짝 유지).
+  // 프로그램 채우기 전에 실행해야 함(채운 프로그램명이 옵션 패턴과 겹칠 수 있음)
+  xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
+  xml = xml.replace(/<hp:t>\((?:기본|특화|AI특화)\/[^<]*<\/hp:t>/g, "<hp:t></hp:t>");
+
   // 일차별 운영일시: 단락 단위. 사용 일차는 채우고(검정), 미사용 일차는 단락 삭제 → 줄 수 자동 축소
   xml = xml.replace(
     /<hp:p\b[^>]*>(?:(?!<\/hp:p>)[\s\S])*?<hp:t>\((\d)일차\) 00월 00일 \/ 00시 00분 ~ 00시 00분\s*<\/hp:t>(?:(?!<\/hp:p>)[\s\S])*?<\/hp:p>/g,
@@ -197,7 +202,7 @@ function fillPlaceholders(xml, cloner, data) {
   return xml;
 }
 
-async function buildPlaceholderHwpx(templateBuf, data) {
+async function buildPlaceholderHwpx(templateBuf, data, preprocess) {
   const zip = await JSZip.loadAsync(templateBuf);
   const secPath = "Contents/section0.xml";
   const hdrPath = "Contents/header.xml";
@@ -205,6 +210,7 @@ async function buildPlaceholderHwpx(templateBuf, data) {
   const header = { xml: await zip.file(hdrPath).async("string") };
   const cloner = makeBlackCloner(header);
 
+  if (preprocess) xml = preprocess(xml, data);   // 회차 블록 확장/삭제 등
   xml = fillPlaceholders(xml, cloner, data);
 
   zip.file(secPath, xml);
@@ -212,12 +218,80 @@ async function buildPlaceholderHwpx(templateBuf, data) {
   return packageHwpx(zip);
 }
 
+// ---------- 결과보고서 회차 블록 확장/삭제 ----------
+// 본문 최상위 요소(<hp:p>/<hp:tbl>) 순회 (깊이 추적)
+function topLevelEls(xml, start) {
+  const out = [];
+  const open = /<(hp:p|hp:tbl)\b/g;
+  open.lastIndex = start;
+  let m;
+  while ((m = open.exec(xml))) {
+    const tag = m[1], j = m.index;
+    const pat = new RegExp(`</?${tag}\\b`, "g");
+    pat.lastIndex = j;
+    let depth = 0, k = j, mm;
+    while ((mm = pat.exec(xml))) {
+      if (xml[mm.index + 1] === "/") { if (--depth === 0) { k = mm.index + mm[0].length; break; } }
+      else depth++;
+      k = pat.lastIndex;
+    }
+    const end = xml.indexOf(">", k - 1) >= 0 ? k : xml.length;
+    out.push({ start: j, end, tag, text: [...xml.slice(j, end).matchAll(/<hp:t>(.*?)<\/hp:t>/g)].map(x => x[1]).join("") });
+    open.lastIndex = end;
+  }
+  return out;
+}
+
+// 회차별 결과보고 블록을 일수에 맞게 확장(>4)·삭제(<4)
+function expandReportRounds(xml, data) {
+  const days = (data.days || []).filter(d => d && d.date);
+  const D = days.length;
+  if (!D) return xml;
+
+  const secm = xml.match(/<hs:sec\b[^>]*>/);
+  const els = topLevelEls(xml, secm ? secm.index + secm[0].length : 0);
+  const rounds = els.filter(e => /\d회차 결과보고/.test(e.text))
+    .map(e => ({ ...e, n: +e.text.match(/(\d)회차 결과보고/)[1] }))
+    .sort((a, b) => a.n - b.n);
+  if (rounds.length < 4) return xml;          // 표준 4회차 양식이 아니면 건너뜀
+  const gisa = els.find(e => /기타 운영사항/.test(e.text));
+  if (!gisa) return xml;
+
+  // 회차4 블록(헤더~사진표) = 회차4 헤더 시작 ~ "3.기타운영사항" 시작 사이
+  const r4 = rounds[3];
+  const block4 = xml.slice(r4.start, gisa.start);   // 회차4 + 후행 빈단락 포함
+
+  let maxId = Math.max(...[...xml.matchAll(/\bid="(\d{6,})"/g)].map(x => +x[1]), 0);
+  let maxZ = Math.max(...[...xml.matchAll(/zOrder="(\d+)"/g)].map(x => +x[1]), 0);
+
+  if (D <= 4) {
+    // 초과 회차(D+1..4) 블록 삭제: rounds[D] 시작 ~ gisa 시작
+    if (D < 4) xml = xml.slice(0, rounds[D].start) + xml.slice(gisa.start);
+    return xml;
+  }
+
+  // D>4: 회차4 블록을 복제해 5..D회차 생성 (새 페이지·회차/일차 번호·표 id 갱신)
+  let clones = "";
+  for (let k = 5; k <= D; k++) {
+    let c = block4
+      .replace(/<hp:t>4회차<\/hp:t>/g, `<hp:t>${k}회차</hp:t>`)
+      .replace(/\(4일차\) 00월 00일/g, `(${k}일차) 00월 00일`)
+      .replace(/\bid="(\d{6,})"/g, () => `id="${++maxId}"`)
+      .replace(/zOrder="\d+"/g, () => `zOrder="${++maxZ}"`);
+    // 다음 페이지로: 첫 단락에 pageBreak 적용
+    c = c.replace(/(<hp:p\b[^>]*?)pageBreak="0"/, '$1pageBreak="1"');
+    clones += c;
+  }
+  // 회차4 블록 직후(=gisa 시작 직전)에 삽입
+  return xml.slice(0, gisa.start) + clones + xml.slice(gisa.start);
+}
+
 // 교구 관리대장
 export function buildEquipmentLedgerHwpx(templateBuf, data) {
   return buildPlaceholderHwpx(templateBuf, data);
 }
 
-// 결과보고서 (보조강사 취합 서류) — 프로그램명/교육장소/회차별 운영일시/운영기간 채움
+// 결과보고서 (보조강사 취합 서류) — 회차 블록을 일수에 맞게 확장/삭제 후 채움
 export function buildReportHwpx(templateBuf, data) {
-  return buildPlaceholderHwpx(templateBuf, data);
+  return buildPlaceholderHwpx(templateBuf, data, expandReportRounds);
 }
