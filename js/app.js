@@ -301,6 +301,7 @@ async function onConvert() {
 }
 
 function renderPreview(classes) {
+  $("resultCard").style.display = classes.length ? "block" : "none";
   $("meta").innerHTML = classes
     .map(c => `<b>${escHtml(c.className)}</b>: ${escHtml(c.school)} / ${escHtml(c.program)} (${c.rows.length}명)`)
     .join("<br>");

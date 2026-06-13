@@ -8,31 +8,36 @@
 </head>
 <body>
 <header>
-  <h1>디싹 캠프 서류 자동화</h1>
-  <p class="sub">캠프명단을 업로드하면 ① 수업신청학생등록양식(xlsx, 익명화) ② 수령대장(hwpx, 실명)을 자동 작성합니다.</p>
+  <div class="header-inner">
+    <h1>디싹 캠프 서류 자동화</h1>
+    <p class="sub">캠프명단 한 번 업로드로 등록양식·수령대장·교구관리대장·결과보고서·안전서류·강사료신청서까지 자동 작성.
+      모든 처리는 브라우저 안에서만 이루어집니다.</p>
+  </div>
 </header>
 
 <main>
   <section class="card">
-    <h2>1. 캠프명단 업로드 <span class="req">필수</span></h2>
-    <input type="file" id="rosterFile" accept=".xlsx">
+    <h2><span class="step">1</span>캠프명단 업로드 <span class="req">필수</span></h2>
+    <div class="field">
+      <input type="file" id="rosterFile" accept=".xlsx">
+    </div>
     <div id="rosterStatus" class="status"></div>
-    <p class="hint">표준 양식(프로그램명 드롭다운 포함)으로 작성하세요:
+    <p class="hint">📄 표준 양식(프로그램명 드롭다운 포함)으로 작성하세요 —
       <a id="rosterTemplateLink" href="templates/캠프명단양식.xlsx" download="캠프명단양식.xlsx">표준 캠프명단 양식 내려받기</a></p>
   </section>
 
   <section class="card">
-    <h2>2. 지역 자동완성 <span class="opt">자동</span></h2>
+    <h2><span class="step">2</span>지역 자동완성 <span class="opt">자동</span></h2>
     <div id="neisStatus" class="status"></div>
-    <label class="block">학교 검색 → 지역 자동선택:
-      <input type="text" id="schoolSearch" placeholder="예) 증안초등학교" size="28">
-      <button id="schoolSearchBtn">검색</button>
-    </label>
-    <label>지역(시·도):
-      <select id="schoolSido">
-        <option value="">— 선택 —</option>
-      </select>
-    </label>
+    <div class="inline-fields">
+      <label class="fld">학교 검색
+        <span class="ctrl"><input type="text" id="schoolSearch" placeholder="예) 증안초등학교">
+          <button id="schoolSearchBtn" class="ghost">검색</button></span>
+      </label>
+      <label class="fld">지역(시·도)
+        <select id="schoolSido"><option value="">— 선택 —</option></select>
+      </label>
+    </div>
     <div id="schoolStatus" class="status"></div>
     <div id="dbStatus" class="status"></div>
     <p class="hint">변환 시 명단의 학교명으로 지역이 자동 입력됩니다. (번들 매핑 → 원DB → NEIS → 수동)</p>
@@ -40,19 +45,26 @@
 
   <section class="card" id="settings" style="display:none"></section>
 
-  <section class="card">
-    <button id="convertBtn" class="primary">변환</button>
-    <button id="downloadBtn" class="primary" disabled>등록양식(xlsx)</button>
-    <button id="downloadHwpxBtn" class="primary" disabled>수령대장(hwpx)</button>
-    <button id="downloadEquipBtn" class="primary" disabled>교구관리대장(hwpx)</button>
-    <button id="downloadReportBtn" class="primary" disabled>결과보고서(hwpx)</button>
-    <button id="downloadSafetyBtn" class="primary" disabled>안전업무일지(hwpx)</button>
-    <button id="downloadChecklistBtn" class="primary" disabled>안전체크리스트(hwpx)</button>
-    <button id="downloadPayBtn" class="primary" disabled>강사료지급신청서(hwpx)</button>
+  <section class="card action-card">
+    <button id="convertBtn" class="btn-convert">변환하기</button>
     <div id="convertStatus" class="status"></div>
+
+    <div class="dl-wrap">
+      <h3 class="dl-title">서류 다운로드 <span class="opt">변환 후 활성화</span></h3>
+      <div class="dl-grid">
+        <button id="downloadBtn" class="btn-dl" disabled>수업신청학생등록양식<small>xlsx · 익명화 · 클래스별</small></button>
+        <button id="downloadHwpxBtn" class="btn-dl" disabled>수령대장<small>hwpx · 실명 · 클래스별</small></button>
+        <button id="downloadEquipBtn" class="btn-dl" disabled>교구관리대장<small>hwpx · 주강사 필요</small></button>
+        <button id="downloadReportBtn" class="btn-dl" disabled>결과보고서<small>hwpx · 클래스별</small></button>
+        <button id="downloadSafetyBtn" class="btn-dl" disabled>안전업무일지<small>hwpx · 안전관리자</small></button>
+        <button id="downloadChecklistBtn" class="btn-dl" disabled>안전체크리스트<small>hwpx · 안전관리자</small></button>
+        <button id="downloadPayBtn" class="btn-dl" disabled>강사료지급신청서<small>hwpx · 캠프 1부</small></button>
+      </div>
+    </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="resultCard" style="display:none">
+    <h2><span class="step">✓</span>미리보기</h2>
     <div id="meta" class="meta"></div>
     <div id="warn" class="warn"></div>
     <div id="preview" class="preview"></div>
@@ -60,7 +72,7 @@
 </main>
 
 <footer>
-  <p>모든 처리는 브라우저 안에서만 이루어집니다 (개인정보 외부 전송 없음).</p>
+  <p>🔒 모든 처리는 브라우저 안에서만 이루어집니다 — 개인정보가 외부로 전송되지 않습니다.</p>
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
