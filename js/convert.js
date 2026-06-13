@@ -110,8 +110,43 @@ export function generalStudentFlag(memo, social) {
   return cared ? "" : "Y";
 }
 
+// 라벨 셀(index) 이후 첫 비어있지 않은 칸
+function nextNonEmpty(row, i) {
+  for (let j = i + 1; j < row.length; j++) {
+    const v = (row[j] || "").toString().trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+// 신청 교사 섹션 파싱 → [{name, role, phone}]
+function parseTeachers(rows) {
+  let hIdx = -1, c = {};
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i].map(x => (x || "").toString().trim());
+    if (r.includes("이름") && r.includes("역할")) {
+      hIdx = i; c.name = r.indexOf("이름"); c.role = r.indexOf("역할"); c.phone = r.indexOf("전화");
+      break;
+    }
+  }
+  if (hIdx < 0) return [];
+  const out = [];
+  for (let i = hIdx + 1; i < rows.length; i++) {
+    const r = rows[i];
+    const nm = (r[c.name] || "").toString().trim();
+    if (!nm) break;
+    if (nm === "예시" || nm === "이름") continue;
+    out.push({
+      name: nm,
+      role: (r[c.role] || "").toString().trim(),
+      phone: (c.phone >= 0 ? (r[c.phone] || "") : "").toString().trim()
+    });
+  }
+  return out;
+}
+
 // ---------- 명단 파싱 ----------
-// 반환: { sheet, school, program, courseLevel, students:[{name,phone,school,grade,memo}] }
+// 반환: { sheet, school, program, courseLevel, students, teachers, mainTeacher }
 export function parseRoster(workbook) {
   const result = [];
   for (const sheetName of workbook.SheetNames) {
@@ -119,22 +154,25 @@ export function parseRoster(workbook) {
     const ws = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: "" });
 
-    // 메타: 교육 장소 / 프로그램명 찾기
+    // 메타: 교육 장소 / 프로그램명 찾기 (라벨 이후 첫 비어있지 않은 칸)
     let school = "", program = "";
     for (const r of rows.slice(0, 6)) {
       for (let i = 0; i < r.length; i++) {
         const v = (r[i] || "").toString().trim();
-        if (v === "교육 장소") school = (r[i+1] || "").toString().trim();
-        if (v === "프로그램명") program = (r[i+1] || r[i+2] || "").toString().trim();
+        if (v === "교육 장소") school = nextNonEmpty(r, i);
+        if (v === "프로그램명") program = nextNonEmpty(r, i);
       }
     }
+    // 표준 양식의 placeholder는 무시
+    if (/^학교\/기관명$/.test(school)) school = "";
 
     // 헤더 행(이름/전화) 찾기
     let hIdx = -1, col = {};
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i].map(x => (x || "").toString().trim());
-      if (r.includes("이름") && r.includes("전화")) {
+      if (r.includes("이름") && r.includes("전화") && !r.includes("역할")) {
         hIdx = i;
+        col.no = r.indexOf("No");
         col.name = r.indexOf("이름");
         col.phone = r.indexOf("전화");
         col.school = r.indexOf("학교");
@@ -153,8 +191,10 @@ export function parseRoster(workbook) {
     for (let i = hIdx + 1; i < rows.length; i++) {
       const r = rows[i];
       const nm = (r[col.name] || "").toString().trim();
-      if (!nm) break;                              // 빈 줄이면 명단 끝
-      if (/신청\s*교사|문의|^No$|^이름$/.test(nm)) break;  // 교사 섹션 진입
+      const nov = (col.no >= 0 ? (r[col.no] || "") : "").toString().trim();
+      if (nov === "예시" || /^홍\*동$/.test(nm)) continue;   // 예시 행 건너뜀
+      if (!nm) break;                                        // 빈 줄이면 명단 끝
+      if (/신청\s*교사|문의|^No$|^이름$/.test(nm)) break;    // 교사 섹션 진입
       if (!startDate && col.start >= 0) startDate = (r[col.start] || "").toString().trim();
       if (col.end >= 0) { const ev = (r[col.end] || "").toString().trim(); if (ev) endDate = ev; }
       students.push({
@@ -166,6 +206,10 @@ export function parseRoster(workbook) {
       });
     }
 
+    // 신청 교사(주강사/보조강사/안전관리) 추출
+    const teachers = parseTeachers(rows);
+    const mainTeacher = (teachers.find(t => /주강사/.test(t.role)) || {}).name || "";
+
     result.push({
       sheet: sheetName,
       school: school,
@@ -174,7 +218,7 @@ export function parseRoster(workbook) {
       courseLevel: courseLevelFromProgram(program),   // 초저/초고/중등...
       startDate, endDate,
       dates: dateRange(startDate, endDate),           // [{m,d}, ...]
-      students
+      students, teachers, mainTeacher
     });
   }
   return result;

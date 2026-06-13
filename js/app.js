@@ -163,8 +163,9 @@ function renderSettings(blocks) {
           <label>기관 <select id="org_${id}">${orgOpts}</select></label>
         </div>
         <div class="row">
-          <label>주강사 <input type="text" id="teacher_${id}" placeholder="주강사 성명" style="width:110px"></label>
+          <label>주강사 <input type="text" id="teacher_${id}" value="${escAttr(blk.mainTeacher || "")}" placeholder="주강사 성명" style="width:110px"></label>
           <label>교구 수량 <input type="number" id="qty_${id}" placeholder="개수" style="width:70px"></label>
+          ${blk.mainTeacher ? "" : '<span class="muted">※ 주강사 없으면 교구관리대장 비활성(보조강사 서류만)</span>'}
         </div>
         <div class="days" id="days_${id}">${dayRows}</div>
         <button type="button" class="addDay" data-cls="${id}">+ 일차 추가</button>
@@ -185,8 +186,19 @@ function renderSettings(blocks) {
       bindDelDay(cont);
     });
     bindDelDay($(`days_${id}`));
+    // 주강사 입력 변화 → 교구관리대장 버튼 게이팅 갱신
+    $(`teacher_${id}`).addEventListener("input", updateEquipBtn);
   }
   host.style.display = blocks.length ? "block" : "none";
+}
+
+// 주강사 입력이 하나라도 있으면 교구관리대장 활성 (없으면 비활성 = 보조강사 서류만)
+function anyMainTeacher() {
+  return [...document.querySelectorAll('[id^="teacher_"]')].some(i => i.value.trim());
+}
+function updateEquipBtn() {
+  const ok = lastClasses && lastClasses.length && equipTemplateBuf && anyMainTeacher();
+  $("downloadEquipBtn").disabled = !ok;
 }
 
 function bindDelDay(cont) {
@@ -251,8 +263,8 @@ async function onConvert() {
   const total = lastClasses.reduce((n, c) => n + c.rows.length, 0);
   $("downloadBtn").disabled = total === 0;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
-  $("downloadEquipBtn").disabled = total === 0 || !equipTemplateBuf;
   $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
+  updateEquipBtn();   // 교구관리대장은 주강사 있을 때만 활성
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
 }
@@ -265,7 +277,22 @@ function renderPreview(classes) {
   const allLog = classes.flatMap(c => c.regionLog);
   const unresolved = [...new Set(allLog.filter(r => !r.sido).map(r => r.school))];
   if (unresolved.length) {
-    $("warn").innerHTML = `⚠ 지역 미확인 학교: <b>${unresolved.join(", ")}</b> — 학교 검색/드롭다운으로 선택 후 다시 변환하세요.`;
+    // 명단의 실제 학교명에 직접 시·도를 지정 → 즉시 적용
+    let h = `⚠ 지역 미확인 학교 — 시·도를 지정하면 바로 반영됩니다:`;
+    unresolved.forEach((sc, idx) => {
+      const opts = SIDO_LIST.map(s => `<option>${s}</option>`).join("");
+      h += `<div class="row" style="margin-top:4px">
+        <b>${escHtml(sc)}</b>
+        <select class="fixSido" data-school="${escAttr(sc)}"><option value="">— 선택 —</option>${opts}</select></div>`;
+    });
+    h += `<button id="applyFix" style="margin-top:6px">선택한 지역 적용</button>`;
+    $("warn").innerHTML = h;
+    $("applyFix").onclick = () => {
+      document.querySelectorAll(".fixSido").forEach(sel => {
+        if (sel.value) resolver.learn(sel.dataset.school, sel.value);  // 실제 학교명에 매핑
+      });
+      onConvert();   // 재변환 → 적용
+    };
   } else {
     $("warn").innerHTML = "";
   }
