@@ -5,7 +5,7 @@
 // 환경변수: GEMINI_API_KEY(필수), GEMINI_MODEL(선택, 우선 시도)
 
 // 단종 대비 폴백 순서 (공식 안정 모델 → 별칭). 앞에서부터 시도.
-const DEFAULT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-flash-latest"];
+const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"];
 
 function buildPrompt({ program, school, kind, who }) {
   return `너는 디지털새싹 SW·AI 교육 캠프를 직접 운영하고 마무리한 현장 담당자다.
