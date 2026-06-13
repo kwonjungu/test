@@ -12,6 +12,12 @@ let rosterName = "명단";
 
 window.addEventListener("DOMContentLoaded", async () => {
   await resolver.loadBundle();
+  // 원DB(모집현황) 비PII 참고데이터를 백그라운드로 내장 로드
+  resolver.loadProgramDb().then(info => {
+    setStatus("dbStatus",
+      `원DB 내장됨 — 참고 학교 ${info.schools}개 / 학급 ${info.classes}건`,
+      info.schools ? "ok" : "warn");
+  });
   // 기본 양식 템플릿 미리 로드
   try {
     const res = await fetch("templates/수업신청학생등록양식.xlsx");
@@ -43,7 +49,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   $("rosterFile").addEventListener("change", onRoster);
   $("templateFile").addEventListener("change", onTemplate);
-  $("dbFile").addEventListener("change", onDb);
   $("schoolSearchBtn").addEventListener("click", onSchoolSearch);
   $("schoolSearch").addEventListener("keydown", e => { if (e.key === "Enter") onSchoolSearch(); });
   $("convertBtn").addEventListener("click", onConvert);
@@ -82,17 +87,6 @@ async function onTemplate(e) {
   templateBuf = await f.arrayBuffer();
   setStatus("templateStatus", `양식 교체됨: ${f.name}`, "ok");
 }
-async function onDb(e) {
-  const f = e.target.files[0]; if (!f) return;
-  const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
-  let learned = 0;
-  for (const sn of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: "" });
-    learned += resolver.learnFromDb(rows);
-  }
-  setStatus("dbStatus", `원DB 학습: ${learned}건 학교명 확보`, "ok");
-}
-
 async function onConvert() {
   if (!rosterBuf) { alert("캠프명단을 먼저 업로드하세요"); return; }
   if (!templateBuf) { alert("양식 템플릿이 없습니다"); return; }

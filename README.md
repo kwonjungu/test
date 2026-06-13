@@ -20,6 +20,7 @@
 1. `index.html`을 열거나 GitHub Pages 주소 접속
 2. 캠프명단 xlsx 업로드 → **변환** → **다운로드** (오전반/오후반 파일을 각각 개별 다운로드)
 3. 지역은 학교명으로 자동 입력. 미확인 학교만 "학교 검색" 또는 드롭다운으로 선택
+4. 원DB(모집현황)는 비PII 참고데이터(`data/program_db.json`)로 내장돼 백그라운드 자동 로드 (업로드 불필요)
 
 ### 지역 자동조회 (NEIS)
 별도 키/설정 없이 동작합니다. NEIS 개방 API는 키 없이도 호출되고 CORS(*)도 허용되어
@@ -43,6 +44,7 @@ js/config.js            NEIS API 키 설정
 js/convert.js           명단 파싱 · 변환 규칙 · xlsx 템플릿 채우기
 js/region.js            지역(시·도) 해석기 (번들/원DB/NEIS/수동)
 data/region_map.json    학교명 → 시·도 매핑 (누적)
+data/program_db.json    원DB(모집현황) 비PII 참고데이터 — 백그라운드 자동 로드
 templates/              양식 파일(xlsx) — 채우기 대상
 samples/                테스트용 샘플 명단
 docs/RULES.md           변환 규칙 명세

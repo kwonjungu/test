@@ -28,9 +28,25 @@ export function officeToSido(officeName) {
 
 export class RegionResolver {
   constructor() {
-    this.map = {};          // 학교명 -> 시도 (번들 + 학습)
+    this.map = {};            // 학교명 -> 시도 (번들 + 학습)
     this.neisKey = "";
-    this.cache = {};        // NEIS 조회 캐시
+    this.cache = {};          // NEIS 조회 캐시
+    this.programClasses = []; // 원DB(모집현황) 학급 레코드 (비PII)
+    this.dbSchools = new Set(); // 원DB 학교명
+  }
+
+  // 내장된 원DB(program_db.json) 백그라운드 로드
+  async loadProgramDb(url = "data/program_db.json") {
+    try {
+      const res = await fetch(url);
+      const json = await res.json();
+      this.programClasses = json.classes || [];
+      (json.schools || []).forEach(s => this.dbSchools.add(s));
+      return { schools: this.dbSchools.size, classes: this.programClasses.length };
+    } catch (e) {
+      console.warn("program_db 로드 실패", e);
+      return { schools: 0, classes: 0 };
+    }
   }
 
   async loadBundle(url = "data/region_map.json") {
@@ -45,20 +61,6 @@ export class RegionResolver {
 
   learn(school, sido) {
     if (school && sido) this.map[school] = sido;
-  }
-
-  // 원DB(대림대/가천대 모집현황 등)에서 학교명->지역 학습
-  // rows: [{지역, 학교명}] 형태
-  learnFromDb(rows) {
-    let n = 0;
-    for (const r of rows) {
-      const school = (r["학교명"] || "").toString().split(/\s|\(/)[0].trim();
-      const region = (r["지역"] || "").toString().trim();
-      // 원DB의 '지역'은 권역(서울인천/강원충청 등)이므로 시·도로는 못 쓰고,
-      // 학교명만 확보해 NEIS 조회 후보로 둔다. (권역→시도 직접 매핑은 안 함)
-      if (school) { this.map["__dbschools__"] = this.map["__dbschools__"] || {}; this.map["__dbschools__"][school] = region; n++; }
-    }
-    return n;
   }
 
   async resolve(school) {
