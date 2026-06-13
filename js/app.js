@@ -106,7 +106,7 @@ async function onConvert() {
   const total = lastClasses.reduce((n, c) => n + c.rows.length, 0);
   $("downloadBtn").disabled = total === 0;
   $("downloadBtn").textContent = lastClasses.length > 1
-    ? `등록양식 ${lastClasses.length}개 클래스 다운로드(ZIP)` : "등록양식 다운로드";
+    ? `등록양식 ${lastClasses.length}개 파일 개별 다운로드` : "등록양식 다운로드";
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
 }
@@ -150,30 +150,21 @@ function safeName(s) { return (s || "").replace(/[\\/:*?"<>|]/g, "_"); }
 async function onDownload() {
   if (!lastClasses || !lastClasses.length) return;
 
-  // 클래스별로 개별 파일 생성
-  const files = [];
-  for (const c of lastClasses) {
+  // 클래스(오전반/오후반)별 파일을 개별로 다운로드 (ZIP 없음)
+  for (let i = 0; i < lastClasses.length; i++) {
+    const c = lastClasses[i];
     const blob = await buildRegistrationXlsx(templateBuf, c.rows);
-    files.push({
-      name: `수업신청학생등록양식_${safeName(rosterName)}_${safeName(c.className)}.xlsx`,
-      blob
-    });
+    const name = `수업신청학생등록양식_${safeName(rosterName)}_${safeName(c.className)}.xlsx`;
+    triggerDownload(blob, name);
+    if (i < lastClasses.length - 1) await sleep(350);  // 연속 다운로드 차단 방지
   }
-
-  if (files.length === 1) {
-    triggerDownload(files[0].blob, files[0].name);
-    return;
-  }
-  // 여러 클래스면 ZIP으로 묶어 다운로드
-  const zip = new JSZip();
-  for (const f of files) zip.file(f.name, f.blob);
-  const zipBlob = await zip.generateAsync({ type: "blob" });
-  triggerDownload(zipBlob, `수업신청학생등록양식_${safeName(rosterName)}.zip`);
 }
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 function triggerDownload(blob, name) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = name; a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
