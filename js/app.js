@@ -4,8 +4,9 @@ import { parseRoster, toRegistrationRows, buildRegistrationXlsx } from "./conver
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
 let templateBuf = null;     // 양식 ArrayBuffer
-let lastRows = null;        // 변환된 행
+let lastClasses = null;     // 변환된 클래스별 결과 [{className, rows, ...}]
 let rosterBuf = null;
+let rosterName = "명단";
 
 window.addEventListener("DOMContentLoaded", async () => {
   await resolver.loadBundle();
@@ -34,6 +35,7 @@ function setStatus(id, msg, cls = "") {
 async function onRoster(e) {
   const f = e.target.files[0]; if (!f) return;
   rosterBuf = await f.arrayBuffer();
+  rosterName = f.name.replace(/\.xlsx$/i, "");
   setStatus("rosterStatus", `명단 로드됨: ${f.name}`, "ok");
 }
 async function onTemplate(e) {
@@ -59,20 +61,25 @@ async function onConvert() {
 
   const wb = XLSX.read(rosterBuf, { type: "array" });
   const blocks = parseRoster(wb);
-  const { rows, regionLog } = await toRegistrationRows(blocks, resolver);
-  lastRows = rows;
+  lastClasses = await toRegistrationRows(blocks, resolver);
 
-  renderPreview(rows, regionLog, blocks);
-  $("downloadBtn").disabled = rows.length === 0;
-  setStatus("convertStatus", `변환 완료: 학생 ${rows.length}명`, "ok");
+  renderPreview(lastClasses);
+  const total = lastClasses.reduce((n, c) => n + c.rows.length, 0);
+  $("downloadBtn").disabled = total === 0;
+  $("downloadBtn").textContent = lastClasses.length > 1
+    ? `등록양식 ${lastClasses.length}개 클래스 다운로드(ZIP)` : "등록양식 다운로드";
+  setStatus("convertStatus",
+    `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
 }
 
-function renderPreview(rows, regionLog, blocks) {
-  const meta = blocks.map(b => `${b.sheet}: ${b.school} / ${b.program} (${b.students.length}명)`).join("<br>");
-  $("meta").innerHTML = meta;
+function renderPreview(classes) {
+  $("meta").innerHTML = classes
+    .map(c => `<b>${c.className}</b>: ${c.school} / ${c.program} (${c.rows.length}명)`)
+    .join("<br>");
 
-  // 지역 미해결 경고
-  const unresolved = [...new Set(regionLog.filter(r => !r.sido).map(r => r.school))];
+  // 지역 미해결 경고 (전체 클래스 합산)
+  const allLog = classes.flatMap(c => c.regionLog);
+  const unresolved = [...new Set(allLog.filter(r => !r.sido).map(r => r.school))];
   if (unresolved.length) {
     $("warn").innerHTML = `⚠ 지역 미확인 학교: <b>${unresolved.join(", ")}</b> — NEIS 키를 입력하거나 수동 선택하세요.<br>` +
       `<select id="manualSido">${SIDO_LIST.map(s => `<option>${s}</option>`).join("")}</select> ` +
@@ -87,21 +94,47 @@ function renderPreview(rows, regionLog, blocks) {
   }
 
   const head = ["학생명","연락처","이메일","지역","학교","학년","반","일반학생 여부"];
-  let html = "<table><thead><tr>" + head.map(h => `<th>${h}</th>`).join("") + "</tr></thead><tbody>";
-  for (const r of rows) {
-    html += "<tr>" + head.map(h => `<td>${r[h] || ""}</td>`).join("") + "</tr>";
+  let html = "";
+  for (const c of classes) {
+    html += `<h3 class="cls">${c.className} (${c.rows.length}명)</h3>`;
+    html += "<table><thead><tr>" + head.map(h => `<th>${h}</th>`).join("") + "</tr></thead><tbody>";
+    for (const r of c.rows) {
+      html += "<tr>" + head.map(h => `<td>${r[h] || ""}</td>`).join("") + "</tr>";
+    }
+    html += "</tbody></table>";
   }
-  html += "</tbody></table>";
   $("preview").innerHTML = html;
 }
 
+function safeName(s) { return (s || "").replace(/[\\/:*?"<>|]/g, "_"); }
+
 async function onDownload() {
-  if (!lastRows) return;
-  const blob = await buildRegistrationXlsx(templateBuf, lastRows);
+  if (!lastClasses || !lastClasses.length) return;
+
+  // 클래스별로 개별 파일 생성
+  const files = [];
+  for (const c of lastClasses) {
+    const blob = await buildRegistrationXlsx(templateBuf, c.rows);
+    files.push({
+      name: `수업신청학생등록양식_${safeName(rosterName)}_${safeName(c.className)}.xlsx`,
+      blob
+    });
+  }
+
+  if (files.length === 1) {
+    triggerDownload(files[0].blob, files[0].name);
+    return;
+  }
+  // 여러 클래스면 ZIP으로 묶어 다운로드
+  const zip = new JSZip();
+  for (const f of files) zip.file(f.name, f.blob);
+  const zipBlob = await zip.generateAsync({ type: "blob" });
+  triggerDownload(zipBlob, `수업신청학생등록양식_${safeName(rosterName)}.zip`);
+}
+
+function triggerDownload(blob, name) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = "수업신청학생등록양식_작성본.xlsx";
-  a.click();
+  a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
 }

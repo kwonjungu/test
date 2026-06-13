@@ -109,17 +109,21 @@ export function parseRoster(workbook) {
   return result;
 }
 
-// ---------- 변환: 명단 학생 -> 등록양식 행 ----------
+// ---------- 변환: 명단 학생 -> 등록양식 행 (클래스별 분리) ----------
+// 오전반/오후반 등 학생이 있는 클래스마다 별도 결과를 만든다.
+// 클래스 수 = 명단에서 학생이 있는 시트 수 (원데이터 기준).
 // regionResolver.resolve(school) -> {sido, source}
 export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
-  const out = [];
-  const regionLog = [];
+  const classes = [];
   for (const blk of blocks) {
+    if (!blk.students.length) continue;   // 학생 없는 클래스는 제외
+    const rows = [];
+    const regionLog = [];
     for (const s of blk.students) {
       const level = schoolLevel(s.school, blk.courseLevel);
       const reg = await regionResolver.resolve(s.school);
       regionLog.push({ school: s.school, sido: reg.sido, source: reg.source });
-      out.push({
+      rows.push({
         "학생명": anonymizeName(s.name),
         "연락처": formatPhone(s.phone),
         "이메일": "",
@@ -130,8 +134,15 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
         "일반학생 여부": ""   // 사회적배려자 학급 로직은 후속 단계
       });
     }
+    classes.push({
+      className: blk.sheet,   // "오전반" / "오후반"
+      school: blk.school,
+      program: blk.program,
+      rows,
+      regionLog
+    });
   }
-  return { rows: out, regionLog };
+  return classes;
 }
 
 // ---------- 등록양식 xlsx 생성 (템플릿 채우기, 텍스트 서식 보존) ----------
