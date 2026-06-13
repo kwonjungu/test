@@ -228,19 +228,29 @@ function renderSettings(blocks) {
       bindDelDay(cont);
     });
     bindDelDay($(`days_${id}`));
-    // 주강사 입력 변화 → 교구관리대장 버튼 게이팅 갱신
-    $(`teacher_${id}`).addEventListener("input", updateEquipBtn);
+    // 담당자 입력 변화 → 담당자 필요 버튼 게이팅 갱신
+    $(`teacher_${id}`).addEventListener("input", updateGatedBtns);
+    $(`safety_${id}`).addEventListener("input", updateGatedBtns);
   }
   host.style.display = blocks.length ? "block" : "none";
 }
 
-// 주강사 입력이 하나라도 있으면 교구관리대장 활성 (없으면 비활성 = 보조강사 서류만)
+// 담당자 입력 여부 (설정 패널의 라이브 입력값 기준)
 function anyMainTeacher() {
   return [...document.querySelectorAll('[id^="teacher_"]')].some(i => i.value.trim());
 }
-function updateEquipBtn() {
-  const ok = lastClasses && lastClasses.length && equipTemplateBuf && anyMainTeacher();
-  $("downloadEquipBtn").disabled = !ok;
+function anySafetyManager() {
+  return [...document.querySelectorAll('[id^="safety_"]')].some(i => i.value.trim());
+}
+// 담당자가 입력된 서류만 버튼 활성화 (주강사: 교구·주강사료 / 안전관리자: 안전 지급·계약서)
+function updateGatedBtns() {
+  const ready = !!(lastClasses && lastClasses.length);
+  const hasMain = anyMainTeacher();
+  const hasSafety = anySafetyManager();
+  $("downloadEquipBtn").disabled = !(ready && equipTemplateBuf && hasMain);
+  $("downloadJuPayBtn").disabled = !(ready && juPayTemplateBuf && hasMain);
+  $("downloadSafetyPayBtn").disabled = !(ready && safetyPayTemplateBuf && hasSafety);
+  $("downloadSafetyContractBtn").disabled = !(ready && safetyContractTemplateBuf && hasSafety);
 }
 
 function bindDelDay(cont) {
@@ -311,12 +321,9 @@ async function onConvert() {
   $("downloadSafetyBtn").disabled = total === 0 || !safetyTemplateBuf;
   $("downloadChecklistBtn").disabled = total === 0 || !checklistTemplateBuf;
   $("downloadPayBtn").disabled = total === 0 || !payTemplateBuf;
-  $("downloadJuPayBtn").disabled = total === 0 || !juPayTemplateBuf;
-  $("downloadSafetyPayBtn").disabled = total === 0 || !safetyPayTemplateBuf;
-  $("downloadSafetyContractBtn").disabled = total === 0 || !safetyContractTemplateBuf;
   const anySocial = lastClasses.some(c => (c.settings || {}).social);
   $("downloadMultiBtn").disabled = total === 0 || !multiTemplateBuf || !anySocial;
-  updateEquipBtn();   // 교구관리대장은 주강사 있을 때만 활성
+  updateGatedBtns();   // 교구·주강사료(주강사) / 안전 지급·계약서(안전관리자) 게이팅
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
 }
