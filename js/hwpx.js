@@ -71,20 +71,86 @@ export async function buildReceiptHwpx(templateBuf, { names, chasi, dates }) {
   }
 
   zip.file(path, xml);
+  return packageHwpx(zip);
+}
 
-  // hwpx(OCF) 규칙 보존: mimetype은 STORE(무압축)·첫 엔트리 유지, 나머지는 DEFLATE.
-  // (키 재지정은 기존 순서를 보존하므로 mimetype은 그대로 맨 앞)
+// ---------- hwpx(OCF) 패키징 (한글 호환) ----------
+// mimetype은 STORE(무압축)·첫 엔트리 유지, 나머지는 DEFLATE.
+// JSZip이 자동 추가하는 폴더 엔트리(Contents/ 등)는 원본에 없으므로 제거.
+async function packageHwpx(zip) {
   const mt = await zip.file("mimetype").async("uint8array");
-  zip.file("mimetype", mt, { compression: "STORE" });
-  // JSZip이 자동 생성하는 폴더 엔트리(Contents/ 등)는 원본에 없으므로 제거
+  zip.file("mimetype", mt, { compression: "STORE" });  // 키 재지정은 순서 보존
   for (const k of Object.keys(zip.files)) {
     if (zip.files[k].dir) delete zip.files[k];
   }
-
   return await zip.generateAsync({
     type: "blob",
     mimeType: "application/hwp+zip",
     compression: "DEFLATE",
     compressionOptions: { level: 9 }
   });
+}
+
+// ---------- 교구 관리대장 (플레이스홀더 치환형) ----------
+const pad2 = (n) => String(n).padStart(2, "0");
+// "09:00" -> "09시 00분"
+function fmtTime(s) {
+  const m = (s || "").match(/(\d{1,2})\s*:\s*(\d{1,2})/);
+  return m ? `${pad2(m[1])}시 ${pad2(m[2])}분` : "00시 00분";
+}
+// <hp:t>OLD</hp:t> 형태 정확매칭 전체 치환
+function replaceNode(xml, oldText, newText) {
+  const esc = oldText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return xml.replace(new RegExp(`<hp:t>${esc}</hp:t>`, "g"),
+    `<hp:t>${xmlEsc(newText)}</hp:t>`);
+}
+
+// data: { program, school, org, mainTeacher, equipQty, year, days:[{date:{m,d}, start, end}] }
+export async function buildEquipmentLedgerHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+
+  const days = (data.days || []).filter(d => d && d.date);
+  const year = data.year || 2026;
+  const first = days[0]?.date, last = days[days.length - 1]?.date;
+
+  // 일차별 운영일시: "(K일차) 00월 00일 / 00시 00분 ~ 00시 00분" 형태 노드 일괄 치환
+  xml = xml.replace(/<hp:t>\((\d)일차\)\s*00월 00일 \/ 00시 00분 ~ 00시 00분\s*<\/hp:t>/g,
+    (full, k) => {
+      const idx = +k - 1;
+      if (idx < days.length) {
+        const d = days[idx];
+        return `<hp:t>(${k}일차) ${pad2(d.date.m)}월 ${pad2(d.date.d)}일 / ${fmtTime(d.start)} ~ ${fmtTime(d.end)}</hp:t>`;
+      }
+      return `<hp:t></hp:t>`;   // 사용하지 않는 일차는 비움
+    });
+
+  // 단순 플레이스홀더 치환
+  if (data.program) xml = replaceNode(xml, "프로그램명 작성해주세요", data.program);
+  if (data.school) xml = replaceNode(xml, "00초등학교 (교육장소명)", data.school);
+  if (data.equipQty) xml = replaceNode(xml, "00개", `${data.equipQty}개`);
+
+  if (first && last) {
+    const period = `${year}년 ${pad2(first.m)}월 ${pad2(first.d)}일 ~ ${pad2(last.m)}월 ${pad2(last.d)}일`;
+    xml = replaceNode(xml, "2026년 00월 00일 ~ 00월 00일", period);
+    // 수령일시 = 캠프 시작일
+    xml = replaceNode(xml, "2026.00.00 (캠프 시작일)", `${year}.${pad2(first.m)}.${pad2(first.d)} (캠프 시작일)`);
+    // 제출(서명)일자 = 수업 마지막일
+    xml = replaceNode(xml, "2026. 00. 00.", `${year}. ${pad2(last.m)}. ${pad2(last.d)}.`);
+  }
+
+  // 기관 (한국과학창의재단 / 대림대학교 / ... 의 대학명 교체)
+  if (data.org) {
+    xml = xml.replace(/한국과학창의재단 \/ 대림대학교 \//g, `한국과학창의재단 / ${xmlEsc(data.org)} /`);
+  }
+  // 주강사 성명/서명
+  if (data.mainTeacher) {
+    xml = xml.replace(/ㅇ ㅇ ㅇ/g, xmlEsc(data.mainTeacher));
+    xml = replaceNode(xml, "(주강사 성명)                            (서명)",
+      `${data.mainTeacher}                            (서명)`);
+  }
+
+  zip.file(path, xml);
+  return packageHwpx(zip);
 }

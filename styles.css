@@ -26,7 +26,12 @@ button.primary:disabled { background: #9ca3af; cursor: not-allowed; }
 .clsbox .muted { color: #6b7280; font-size: 12px; font-weight: normal; }
 .clsbox .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; font-size: 13px; }
 .clsbox .dateInp { width: 84px; padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 5px; }
-.clsbox input[type=number] { padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 5px; }
+.clsbox input[type=number], .clsbox input[type=text], .clsbox input[type=time], .clsbox select {
+  padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 5px; font-size: 13px; }
+.dayrow { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: 13px; }
+.dayrow .muted { min-width: 38px; }
+.delDay { border: 0; background: #fee2e2; color: #b91c1c; border-radius: 5px; cursor: pointer; padding: 2px 7px; }
+.addDay { margin-top: 6px; border: 1px dashed #9ca3af; background: #fff; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; }
 table { border-collapse: collapse; width: 100%; font-size: 12px; }
 th, td { border: 1px solid #e5e7eb; padding: 4px 8px; text-align: left; white-space: nowrap; }
 th { background: #f3f4f6; }
