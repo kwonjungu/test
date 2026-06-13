@@ -14,7 +14,19 @@ body {
   font-family: "Pretendard", "Malgun Gothic", -apple-system, BlinkMacSystemFont, sans-serif;
   margin: 0; background: var(--bg); color: var(--ink);
   line-height: 1.5; -webkit-font-smoothing: antialiased;
+  min-height: 100vh; position: relative;
 }
+/* 대림대학교 로고 워터마크 배경 */
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: url("assets/daelim-logo.png");
+  background-repeat: no-repeat;
+  background-position: center 55%;
+  background-size: min(560px, 70vw);
+  opacity: .06;
+}
+header, main, footer { position: relative; z-index: 1; }
 
 /* 헤더 */
 header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff; padding: 28px 20px; }
