@@ -4,10 +4,16 @@
 // 하네스: 모델 폴백 체인 + 타임아웃 + 응답 검증 + 마크다운/AI어투 후처리.
 // 환경변수: GEMINI_API_KEY(필수), GEMINI_MODEL(선택, 우선 시도)
 
+const { programContext } = require("./program-context");
+
 // 단종 대비 폴백 순서 (공식 안정 모델 → 별칭). 앞에서부터 시도.
 const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"];
 
 function buildPrompt({ program, school, kind, who }) {
+  const ctx = programContext(program);
+  const ctxBlock = ctx
+    ? `\n[교안 요약 — 이 내용에만 근거해 쓸 것]\n${ctx}\n`
+    : "";
   return `너는 디지털새싹 SW·AI 교육 캠프를 직접 운영하고 마무리한 현장 담당자다.
 지금부터 운영 서류에 들어갈 한국어 글 한 편을 쓴다. 아래 정보와 규칙을 모두 지켜라.
 
@@ -38,12 +44,12 @@ function buildPrompt({ program, school, kind, who }) {
 종류가 후기이면 세 문장에서 다섯 문장이다.
 학생은 쉬운 구어체 존댓말, 학부모는 정중하고 절제된 감상, 강사는 담담한 운영 소회로 쓴다.
 
-[정보]
+${ctxBlock}[정보]
 프로그램(교안): ${program}
 종류: ${kind}
 작성자: ${who}
 
-위 프로그램(교안) 내용에 맞는 글의 본문만 출력하라. 학교명은 쓰지 마라. 다른 말은 하지 마라.`;
+위 교안 요약과 프로그램 내용에 맞는 글의 본문만 출력하라. 교안에 없는 활동(예: 파이썬, 임의의 로봇/드론 등)을 지어내지 마라. 학교명은 쓰지 마라. 다른 말은 하지 마라.`;
 }
 
 function cleanText(t) {
