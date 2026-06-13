@@ -207,7 +207,7 @@ function renderSettings(blocks) {
           <label>안전관리자 <input type="text" id="safety_${id}" value="${escAttr(blk.safetyManager || "")}" placeholder="안전관리자" style="width:90px"></label>
           <label>교구 수량 <input type="number" id="qty_${id}" placeholder="개수" style="width:64px"></label>
         </div>
-        ${blk.mainTeacher ? "" : '<div class="row"><span class="muted">※ 주강사 없으면 교구관리대장 비활성(보조강사 서류만)</span></div>'}
+        <div class="row"><span class="muted">※ 강사별 서류(교구관리대장·주강사료·안전 지급/계약서)는 해당 담당자 이름을 입력해야 다운로드할 수 있습니다.</span></div>
         <div class="row">${dbNote}</div>
         <div class="days" id="days_${id}">${dayRows}</div>
         <button type="button" class="addDay" data-cls="${id}">+ 일차 추가</button>
