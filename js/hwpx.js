@@ -153,6 +153,24 @@ function makeBlackCloner(header) {
         .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
       cache[cid] = newId;
       return newId;
+    },
+    // 색만 검정으로(크기·폰트·볼드 유지) — 라벨용
+    colorBlack(cid) {
+      const key = "c" + cid;
+      if (cache[key] != null) return cache[key];
+      const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
+      if (!m) return cid;
+      const block = m[0];
+      const color = block.match(/textColor="([^"]+)"/);
+      if (color && color[1].toUpperCase() === "#000000") { cache[key] = cid; return cid; }
+      const newId = ++maxId;
+      let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
+      clone = color ? clone.replace(/textColor="[^"]+"/, 'textColor="#000000"')
+                    : clone.replace(/(<hh:charPr id="\d+")/, '$1 textColor="#000000"');
+      header.xml = header.xml.replace(block, block + clone)
+        .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
+      cache[key] = newId;
+      return newId;
     }
   };
 }
@@ -248,6 +266,13 @@ function fillPlaceholders(xml, cloner, data) {
     const _an = xmlEsc(data.assistantTeacher);
     xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>\(보조강사 성명\)([\s\S]*?)\(서명\)<\/hp:t><\/hp:run>/g,
       (mm, cid, sp) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${_an}${sp}(서명)</hp:t></hp:run>`);
+  }
+  // 표 라벨 검정 보장 (크기·볼드 유지, 색만 검정)
+  const LABELS = ["프로그램명", "교육기간", "운영기간", "운영일시", "운영기관", "확인자",
+    "교육장소", "교육대상", "수령일시", "제출일", "담당자", "교구 수량", "교구 수령 사진"];
+  for (const lab of LABELS) {
+    xml = xml.replace(new RegExp(`<hp:run charPrIDRef="(\\d+)"><hp:t>(${rgEsc(lab)})</hp:t></hp:run>`, "g"),
+      (mm, cid, t) => `<hp:run charPrIDRef="${cloner.colorBlack(cid)}"><hp:t>${t}</hp:t></hp:run>`);
   }
   return xml;
 }
