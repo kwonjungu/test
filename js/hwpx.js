@@ -184,9 +184,8 @@ function fillPlaceholders(xml, cloner, data) {
   xml = removeParagraphWith(xml, "*일차별 교육일시 모두 작성");
   xml = removeParagraphWith(xml, "* 주강사 성함 및 서명 해주세요.");
 
-  // 드롭다운 안내/옵션 목록 메모 텍스트 비우기 (MEMO 필드 구조는 보존 → 짝 유지).
-  // 프로그램 채우기 전에 실행해야 함(채운 프로그램명이 옵션 패턴과 겹칠 수 있음)
-  xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
+  // 드롭다운 옵션 목록만 비움(프로그램명 값으로 채울 "해당 프로그램명 작성"은 보존).
+  // 프로그램 채우기 전에 실행(채운 프로그램명이 옵션 패턴과 겹칠 수 있음)
   xml = xml.replace(/<hp:t>\((?:기본|특화|AI특화)\/[^<]*<\/hp:t>/g, "<hp:t></hp:t>");
 
   // 일차별 운영일시: 단락 단위. 사용 일차는 채우고(검정), 미사용 일차는 단락 삭제 → 줄 수 자동 축소
@@ -201,8 +200,14 @@ function fillPlaceholders(xml, cloner, data) {
         (r, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(label)}</hp:t></hp:run>`);
     });
 
-  // 프로그램명 / 교육장소 / 교구수량 (검정)
-  if (data.program) xml = fillFieldBlack(xml, cloner, "프로그램명 작성해주세요", data.program);
+  // 프로그램명 (검정). 양식별 표시칸이 "해당 프로그램명 작성"(교구관리대장) 또는
+  // "프로그램명 작성해주세요"(안전업무일지 등)로 달라 둘 다 채움
+  if (data.program) {
+    xml = fillFieldBlack(xml, cloner, "해당 프로그램명 작성", data.program);
+    xml = fillFieldBlack(xml, cloner, "프로그램명 작성해주세요", data.program);
+  } else {
+    xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
+  }
   if (data.school) {
     xml = fillFieldBlack(xml, cloner, "00초등학교 (교육장소명)", data.school);
     xml = fillFieldBlack(xml, cloner, "교육장소를 작성해주세요", data.school);
