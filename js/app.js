@@ -101,6 +101,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("convertBtn").addEventListener("click", onConvert);
   $("downloadBtn").addEventListener("click", onDownloadXlsx);
   $("downloadHwpxBtn").addEventListener("click", onDownloadHwpx);
+  $("downloadHwpx2Btn").addEventListener("click", onDownloadHwpx);
   $("downloadEquipBtn").addEventListener("click", onDownloadEquip);
   $("downloadReportBtn").addEventListener("click", onDownloadReport);
   $("downloadSafetyBtn").addEventListener("click", onDownloadSafety);
@@ -326,6 +327,7 @@ async function onConvert() {
   const total = lastClasses.reduce((n, c) => n + c.rows.length, 0);
   $("downloadBtn").disabled = total === 0;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
+  $("downloadHwpx2Btn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
   $("downloadSafetyBtn").disabled = total === 0 || !safetyTemplateBuf;
   $("downloadChecklistBtn").disabled = total === 0 || !checklistTemplateBuf;
