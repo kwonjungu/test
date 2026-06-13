@@ -192,10 +192,13 @@ async function tryLoadFromPath() {
     rosterName = data.rosterName || "명단";
     parsedBlocks = data.parsedBlocks || [];
     lastClasses = (data.classes || []).map(c => ({ ...c }));
+    // 캠프명단·지역·시간·차시·담당자까지 설정 패널 그대로 복원
+    if (parsedBlocks.length) { renderSettings(parsedBlocks); applySettingsToPanel(lastClasses); }
+    setStatus("rosterStatus", `코드 '${code}'에서 캠프 세팅 불러옴 — 클래스 ${parsedBlocks.length}개 (수정 후 재변환 가능)`, "ok");
     renderPreview(lastClasses);
     refreshDownloadButtons();
     if ($("shareCode")) $("shareCode").value = code;
-    setStatus("convertStatus", `코드 '${code}' 불러옴 — 아래에서 서류를 바로 다운로드하세요.`, "ok");
+    setStatus("convertStatus", `코드 '${code}' 불러옴 — 설정이 그대로 복원되었습니다. 아래에서 서류를 바로 다운로드하세요.`, "ok");
     // 템플릿이 늦게 로드돼도 버튼이 켜지도록 잠시 재시도
     let n = 0;
     const iv = setInterval(() => { refreshDownloadButtons(); if (++n > 16) clearInterval(iv); }, 300);
@@ -331,6 +334,29 @@ function renderSettings(blocks) {
     $(`safety_${id}`).addEventListener("input", updateGatedBtns);
   }
   host.style.display = blocks.length ? "block" : "none";
+}
+
+// 링크 로드 시: 저장된 settings 값을 설정 패널 입력칸에 그대로 복원
+function applySettingsToPanel(classes) {
+  for (const c of classes) {
+    const id = cssId(c.className);
+    const st = c.settings || {};
+    const set = (pre, val) => { const el = $(`${pre}_${id}`); if (el && val != null && val !== "") el.value = val; };
+    if ($(`prog_${id}`) && st.program) $(`prog_${id}`).value = st.program;
+    const sc = $(`social_${id}`); if (sc) sc.checked = !!st.social;
+    set("tot", st.chasi);
+    if ($(`org_${id}`) && st.org) $(`org_${id}`).value = st.org;
+    set("teacher", st.mainTeacher);
+    set("assist", st.assistantTeacher);
+    set("safety", st.safetyManager);
+    set("qty", st.equipQty);
+    const cont = $(`days_${id}`);
+    if (cont && Array.isArray(st.days) && st.days.length) {
+      cont.innerHTML = st.days.map((d, i) =>
+        dayRowHtml(id, i, d.date ? fmtDate(d.date) : "", d.start || "", d.end || "")).join("");
+      bindDelDay(cont);
+    }
+  }
 }
 
 // 담당자 입력 여부 — 설정 패널(라이브 입력) 우선, 패널이 없으면(링크 로드) 저장된 settings 사용
