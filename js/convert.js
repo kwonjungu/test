@@ -56,6 +56,21 @@ function courseLevelFromProgram(prog) {
   return m ? m[2].trim() : "";
 }
 
+// 사회적배려자 학급 여부 (다문화 과정)
+export function isSocialClass(program, courseLevel) {
+  return /다문화/.test((courseLevel || "") + " " + (program || ""));
+}
+
+// 일반학생 여부 값 결정
+// - 사회적배려자(다문화) 학급에서만 기입: 배려대상(다문화 등) 아니면 일반학생 → "Y"
+// - 그 외 학급은 공란
+export function generalStudentFlag(memo, social) {
+  if (!social) return "";
+  const m = (memo || "").toString();
+  const cared = /다문화|사회적\s*배려|저소득|한부모|탈북|새터민|특수|장애/.test(m);
+  return cared ? "" : "Y";
+}
+
 // ---------- 명단 파싱 ----------
 // 반환: { sheet, school, program, courseLevel, students:[{name,phone,school,grade,memo}] }
 export function parseRoster(workbook) {
@@ -126,6 +141,7 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
   const classes = [];
   for (const blk of blocks) {
     if (!blk.students.length) continue;   // 학생 없는 클래스는 제외
+    const social = isSocialClass(blk.program, blk.courseLevel);
     const rows = [];
     const regionLog = [];
     for (const s of blk.students) {
@@ -140,7 +156,7 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
         "학교": s.school,
         "학년": gradeText(s.grade, level),
         "반": randomClass(),
-        "일반학생 여부": ""   // 사회적배려자 학급 로직은 후속 단계
+        "일반학생 여부": generalStudentFlag(s.memo, social)
       });
     }
     classes.push({
