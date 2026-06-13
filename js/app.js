@@ -128,24 +128,26 @@ async function onGenOpinions() {
   const school = c0.school || "";
   const roles = ["주강사", "보조강사", "안전관리자"];
   setStatus("aiResult", "생성 중… (수초 소요)", "");
-  try {
-    const results = await Promise.all(roles.map(async (role) => {
-      const r = await fetch("/api/opinion", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ program, role, school })
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
-      return { role, text: j.text || "" };
-    }));
-    $("aiResult").className = "status ok";
-    $("aiResult").innerHTML = results.map(x =>
-      `<div style="margin-top:6px"><b>${x.role}</b>
-       <textarea readonly rows="3" style="width:100%;margin-top:2px">${x.text.replace(/</g, "&lt;")}</textarea></div>`
-    ).join("");
-  } catch (e) {
-    setStatus("aiResult", `생성 실패: ${e.message} — Vercel + GEMINI_API_KEY 설정 후 동작합니다.`, "warn");
-  }
+  // 역할별 독립 호출 — 하나가 실패해도 나머지는 표시 (부분 실패 허용)
+  const settled = await Promise.allSettled(roles.map(async (role) => {
+    const r = await fetch("/api/opinion", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ program, school, kind: "추진의견", who: role })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    return { role, text: j.text || "" };
+  }));
+  const okCount = settled.filter(s => s.status === "fulfilled").length;
+  $("aiResult").className = "status " + (okCount ? "ok" : "warn");
+  $("aiResult").innerHTML = settled.map((s, i) => {
+    const role = roles[i];
+    if (s.status === "fulfilled") {
+      return `<div style="margin-top:6px"><b>${role}</b>
+        <textarea rows="3" style="width:100%;margin-top:2px">${(s.value.text || "").replace(/</g, "&lt;")}</textarea></div>`;
+    }
+    return `<div style="margin-top:6px"><b>${role}</b> <span class="muted">실패: ${String(s.reason && s.reason.message || s.reason)}</span></div>`;
+  }).join("") + (okCount ? "" : `<div class="muted" style="margin-top:4px">Vercel + GEMINI_API_KEY 설정/재배포 후 동작합니다.</div>`);
 }
 
 // 현재 세팅을 Firebase(서버 함수 경유)에 저장하고 공유 링크 생성
