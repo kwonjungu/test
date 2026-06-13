@@ -400,7 +400,7 @@ async function onDownloadEquip() {
       days: st.days || [],
       year: 2026
     });
-    triggerDownload(blob, `교구관리대장_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, `교구관리대장_${ownerTag(st.mainTeacher)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -418,7 +418,7 @@ async function onDownloadReport() {
       days: st.days || [],
       year: 2026
     });
-    triggerDownload(blob, `결과보고서_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, `결과보고서_${ownerTag(st.assistantTeacher)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -444,7 +444,7 @@ async function onDownloadSafety() {
       days: st.days || [],
       year: 2026
     });
-    triggerDownload(blob, `안전업무일지_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, `안전업무일지_${ownerTag(st.safetyManager)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -467,7 +467,7 @@ async function onDownloadChecklist() {
       days: st.days || [],
       year: 2026
     });
-    triggerDownload(blob, `안전체크리스트_${safeName(rosterName)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, `안전체크리스트_${ownerTag(st.safetyManager)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -505,12 +505,14 @@ async function onDownloadPay() {
     school: c0.school || "",
     eduTarget, payoutLines: lines, amount, lastDate, year: 2026
   });
-  triggerDownload(blob, `강사료지급신청서_${safeName(rosterName)}.hwpx`);
+  triggerDownload(blob, `강사료지급신청서_${ownerTag((c0.settings || {}).assistantTeacher)}.hwpx`);
 }
 
 // ---- 유틸 ----
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function safeName(s) { return (s || "").replace(/[\\/:*?"<>|]/g, "_"); }
+// 담당자 이름이 있으면 그 이름으로, 없으면 명단 파일명으로 대체
+function ownerTag(name) { const n = (name || "").trim(); return safeName(n || rosterName); }
 function cssId(s) { return "c" + Array.from(s).reduce((a, ch) => ((a << 5) - a + ch.charCodeAt(0)) | 0, 0).toString(36).replace("-", "n"); }
 function escHtml(s) { return (s ?? "").toString().replace(/[&<>]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m])); }
 function escAttr(s) { return escHtml(s).replace(/"/g, "&quot;"); }
