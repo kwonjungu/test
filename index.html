@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>디싹 캠프명단 → 수업신청학생등록양식 변환기</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>캠프명단 → 수업신청학생등록양식 변환기</h1>
+  <p class="sub">1단계: 캠프명단 엑셀을 업로드하면 익명화·형식변환 후 등록양식 xlsx로 내려받습니다.</p>
+</header>
+
+<main>
+  <section class="card">
+    <h2>1. 캠프명단 업로드 <span class="req">필수</span></h2>
+    <input type="file" id="rosterFile" accept=".xlsx">
+    <div id="rosterStatus" class="status"></div>
+  </section>
+
+  <section class="card">
+    <h2>2. 지역 자동완성 설정 <span class="opt">선택</span></h2>
+    <label>NEIS 개방포털 API 키 (학교명→시·도 자동조회):
+      <input type="text" id="neisKey" placeholder="open.neis.go.kr 발급 키" size="40">
+    </label>
+    <label class="block">원DB(모집현황) 업로드 — 학교명 참고용:
+      <input type="file" id="dbFile" accept=".xlsx">
+    </label>
+    <div id="dbStatus" class="status"></div>
+    <p class="hint">번들 매핑 → 원DB → NEIS → 수동 순으로 지역을 채웁니다.</p>
+  </section>
+
+  <section class="card">
+    <h2>3. 양식 템플릿 <span class="opt">기본 내장</span></h2>
+    <input type="file" id="templateFile" accept=".xlsx">
+    <div id="templateStatus" class="status"></div>
+    <p class="hint">기본 양식이 내장되어 있습니다. 다른 양식을 쓰려면 업로드하세요.</p>
+  </section>
+
+  <section class="card">
+    <button id="convertBtn" class="primary">변환</button>
+    <button id="downloadBtn" class="primary" disabled>등록양식 다운로드</button>
+    <div id="convertStatus" class="status"></div>
+  </section>
+
+  <section class="card">
+    <div id="meta" class="meta"></div>
+    <div id="warn" class="warn"></div>
+    <div id="preview" class="preview"></div>
+  </section>
+</main>
+
+<footer>
+  <p>모든 처리는 브라우저 안에서만 이루어집니다 (개인정보 외부 전송 없음).</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
