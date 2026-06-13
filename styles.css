@@ -96,14 +96,35 @@ button.ghost:hover { background: #eff6ff; }
 .dl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .btn-dl {
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
-  background: #fff; color: var(--navy); border: 1.5px solid var(--navy);
+  background: #fff; color: var(--accent, var(--navy)); border: 1.5px solid var(--accent, var(--navy));
   border-radius: 10px; padding: 11px 14px; font-size: 13.5px; font-weight: 700;
   cursor: pointer; text-align: left; transition: background .12s;
 }
 .btn-dl small { font-size: 11px; font-weight: 500; color: var(--muted); }
-.btn-dl:hover:not(:disabled) { background: #eff6ff; }
+.btn-dl:hover:not(:disabled) { background: var(--accent-bg, #eff6ff); }
 .btn-dl:disabled { border-color: #e5e7eb; color: #9ca3af; cursor: not-allowed; background: #fafafa; }
 .btn-dl:disabled small { color: #b8bec9; }
+
+/* 서류 다운로드 — 역할별 그룹 / 색상 / 인덱스 */
+.dl-group { margin-top: 14px; }
+.dl-group:first-of-type { margin-top: 0; }
+.dl-h { margin: 0 0 8px; font-size: 13px; font-weight: 800; display: flex; align-items: center; gap: 6px;
+  padding-left: 9px; border-left: 4px solid #cbd5e1; }
+.dl-h-common { border-color: #6b7280; color: #374151; }
+.dl-h-main   { border-color: #2563eb; color: #1d4ed8; }
+.dl-h-assist { border-color: #059669; color: #047857; }
+.dl-h-safety { border-color: #ea580c; color: #c2410c; }
+
+.dl-common { --accent: #6b7280; --accent-bg: #f3f4f6; }
+.dl-main   { --accent: #2563eb; --accent-bg: #eff6ff; }
+.dl-assist { --accent: #059669; --accent-bg: #ecfdf5; }
+.dl-safety { --accent: #ea580c; --accent-bg: #fff7ed; }
+
+.btn-dl .idx {
+  font-size: 10px; font-weight: 800; line-height: 1; padding: 3px 6px; border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #6b7280) 16%, #fff); color: var(--accent, #374151);
+}
+.btn-dl:disabled .idx { background: #f1f1f3; color: #b8bec9; }
 
 /* 설정 패널 */
 .clsbox { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 10px 0; background: #fafbfc; }
