@@ -301,7 +301,9 @@ async function onConvert() {
 }
 
 function renderPreview(classes) {
-  $("resultCard").style.display = classes.length ? "block" : "none";
+  const card = $("resultCard");
+  if (!card) return;   // 캐시 불일치 등으로 미리보기 영역이 없으면 안전하게 종료
+  card.style.display = classes.length ? "block" : "none";
   $("meta").innerHTML = classes
     .map(c => `<b>${escHtml(c.className)}</b>: ${escHtml(c.school)} / ${escHtml(c.program)} (${c.rows.length}명)`)
     .join("<br>");
