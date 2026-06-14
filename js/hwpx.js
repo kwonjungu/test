@@ -119,7 +119,24 @@ function makeBlackCloner(header) {
     get xml() { return header.xml; },
     black(cid) { return cid; },
     colorBlack(cid) { return cid; },
-    resize(cid) { return cid; },
+    // 글자 크기만 변경(색·폰트 유지). 의견·후기 칸 11pt(1100)용
+    resize(cid, h = 1100) {
+      const key = "r" + cid + "_" + h;
+      if (cache[key] != null) return cache[key];
+      const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
+      if (!m) return cid;
+      const block = m[0];
+      if (new RegExp(`\\bheight="${h}"`).test(block)) { cache[key] = cid; return cid; }
+      const maxId = Math.max(...[...header.xml.matchAll(/<hh:charPr id="(\d+)"/g)].map(x => +x[1]));
+      const newId = maxId + 1;
+      let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
+      clone = /\bheight="\d+"/.test(clone) ? clone.replace(/\bheight="\d+"/, `height="${h}"`)
+                                           : clone.replace(/(<hh:charPr id="\d+")/, `$1 height="${h}"`);
+      header.xml = header.xml.replace(block, block + clone)
+        .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
+      cache[key] = newId;
+      return newId;
+    },
     // 결과보고서 추진의견 칸용: 왼쪽정렬 + 줄간격 160% paraPr 복제(다른 서류 미사용)
     leftPara(srcId) {
       const key = "p" + srcId;
@@ -365,7 +382,7 @@ function fillReportOpinions(xml, cloner, data) {
     const m = tc.match(/<hp:run charPrIDRef="(\d+)"\/>/)
            || tc.match(/<hp:run charPrIDRef="(\d+)"><hp:t><\/hp:t><\/hp:run>/);
     if (!m) continue;
-    const repl = `<hp:run charPrIDRef="${cloner.black(m[1])}"><hp:t>${xmlEsc(text)}</hp:t></hp:run>`;
+    const repl = `<hp:run charPrIDRef="${cloner.resize(m[1], 1100)}"><hp:t>${xmlEsc(text)}</hp:t></hp:run>`;
     tc = tc.replace(m[0], repl);
     xml = xml.slice(0, ns) + tc + xml.slice(ne + 8);
   }
@@ -507,7 +524,7 @@ export async function buildCaseBookHwpx(templateBuf, data) {
       const pp = attrs.match(/paraPrIDRef="(\d+)"/);
       const newAttrs = pp ? attrs.replace(/paraPrIDRef="\d+"/, `paraPrIDRef="${cloner.leftPara(pp[1])}"`) : attrs;
       let nb = body.replace(/<hp:run charPrIDRef="46"><hp:t>예시\(참고\)[^<]*<\/hp:t><\/hp:run>/,
-        `<hp:run charPrIDRef="46"><hp:t>${xmlEsc(t)}</hp:t></hp:run>`);
+        `<hp:run charPrIDRef="${cloner.resize(46, 1100)}"><hp:t>${xmlEsc(t)}</hp:t></hp:run>`);
       nb = nb.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/, "");
       return `<hp:p${newAttrs}>${nb}</hp:p>`;
     });
