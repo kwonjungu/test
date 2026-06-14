@@ -746,7 +746,7 @@ async function onDownloadPay() {
   const blk0 = parsedBlocks.find(b => b.sheet === c0.className) || {};
   const UNIT = 45000;   // 차시당 단가
 
-  // 클래스별 산출내역 줄 + 총차시 + 마지막일
+  // 클래스별 산출내역 줄(완성본 형식 "6/20~21 45,000원 X 4차시 X 2회") + 총차시 + 마지막일
   let totalChasi = 0, last = null;
   const lines = [];
   for (const c of lastClasses) {
@@ -754,9 +754,12 @@ async function onDownloadPay() {
     const ch = st.chasi || 0;
     totalChasi += ch;
     const ampm = /오후/.test(c.className) ? "오후" : "오전";
-    const cdays = (st.days || []).map(d => d.date).filter(Boolean);
-    const cl = cdays[cdays.length - 1];
-    if (cl) lines.push(`(${ampm}) ${cl.m}/${cl.d} ${UNIT.toLocaleString()}원 X 1학급 X ${ch}차시`);
+    const dd = (st.days || []).map(d => d.date).filter(Boolean);
+    const nd = dd.length;
+    const f = dd[0], l = dd[nd - 1];
+    const perDay = nd ? ch / nd : ch;
+    const perDayTxt = Number.isInteger(perDay) ? perDay : perDay.toFixed(1);
+    if (f && l) lines.push(`(${ampm}) ${f.m}/${f.d}~${l.d} ${UNIT.toLocaleString()}원 X ${perDayTxt}차시 X ${nd}회`);
     for (const d of (st.days || [])) {
       if (d.date && (!last || d.date.m * 100 + d.date.d > last.m * 100 + last.d)) last = d.date;
     }
@@ -768,6 +771,7 @@ async function onDownloadPay() {
   const blob = await buildPayApplicationHwpx(payTemplateBuf, {
     program: (c0.settings && c0.settings.program) || c0.program || "",
     school: c0.school || "",
+    assistantTeacher: (c0.settings || {}).assistantTeacher || "",
     eduTarget, payoutLines: lines, amount, lastDate, year: 2026
   });
   triggerDownload(blob, `강사료지급신청서_${ownerTag((c0.settings || {}).assistantTeacher)}.hwpx`);

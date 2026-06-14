@@ -641,10 +641,32 @@ function fillPayBody(xml, cloner, data) {
 // data: { program, school, eduTarget, payoutLines, amount, lastDate, slots, amountSlot, year }
 const JUPAY_SLOTS = [" (오전) 6/21 75,000원 X 1학급 X 8차시", " (오후) 6/21 75,000원 X 1학급 X 8차시"];
 const JUPAY_AMT = " 1,200,000원";
+const ASSIST_SLOTS = [" (오전) 6/20~21 45,000원 X 4차시 X 2회", " (오후) 6/20~21 45,000원 X 4차시 X 2회"];
+const ASSIST_AMT = " 720,000원";
+const ASSIST_EDU = " 초등 저학년/초등 고학년/중등/고등/다문화";
 export async function buildPayApplicationHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
+
+  if (xml.includes(M.program) && xml.includes("■ 보조강사")) {
+    // ── 보조강사료 완성본 마스터 ── 산출 "45,000원 X N차시 X N회", 금액 720,000, 성명 원종민
+    if (data.program) xml = replaceAllText(xml, M.program, data.program);
+    if (data.school) {                          // 완성본은 학교를 자리표시자로 비워둠
+      xml = replaceAllText(xml, M.school, data.school);
+      xml = replaceAllText(xml, " 캠프가 진행되는 학교명", " " + data.school);
+    }
+    if (data.eduTarget) xml = replaceAllText(xml, ASSIST_EDU, " " + data.eduTarget);
+    if (data.assistantTeacher) xml = replaceAllText(xml, M.assist, data.assistantTeacher);
+    const lines = data.payoutLines || [];
+    ASSIST_SLOTS.forEach((slot, i) => {
+      xml = (i < lines.length) ? replaceAllText(xml, slot, " " + lines[i]) : replaceAllText(xml, slot, "");
+    });
+    if (data.amount) xml = replaceAllText(xml, ASSIST_AMT, " " + data.amount + "원");
+    if (data.lastDate) xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, data.lastDate);
+    zip.file(path, xml);
+    return packageHwpx(zip);
+  }
 
   if (xml.includes(M.program)) {
     // ── 주강사료 완성본 마스터 ──
