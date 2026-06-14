@@ -50,21 +50,29 @@ export function randomClass() {
   return String(Math.floor(Math.random() * 4) + 1);  // 1~4
 }
 
-// 프로그램명에서 학교급 추출: "(기본/초저) ..." -> "초저"
+// 프로그램명에서 학교급 추출
+//  대림대 "(기본/초저) ..." -> "초저" (슬래시 뒤)
+//  가천대 "(초저) ..." -> "초저" (단일 토큰)
 function courseLevelFromProgram(prog) {
-  const m = (prog || "").toString().match(/\(([^/]+)\/([^)]+)\)/);
-  return m ? m[2].trim() : "";
+  const m = (prog || "").toString().match(/\(([^)]*)\)/);
+  if (!m) return "";
+  const inner = m[1].trim();
+  return inner.includes("/") ? inner.split("/")[1].trim() : inner;
 }
 
-// 프로그램명에서 과정 추출: "(기본/초저) ..." -> "기본"
+// 프로그램명에서 과정 추출: "(기본/초저) ..." -> "기본". 가천대 단일 토큰형은 과정 없음("")
 function courseTypeFromProgram(prog) {
-  const m = (prog || "").toString().match(/\(([^/]+)\/([^)]+)\)/);
-  return m ? m[1].trim() : "";
+  const m = (prog || "").toString().match(/\(([^)]*)\)/);
+  if (!m) return "";
+  const inner = m[1].trim();
+  return inner.includes("/") ? inner.split("/")[0].trim() : "";
 }
 
-// 과정 -> 총차시 기본값: 기본=8, 그 외(특화/AI특화)=12
+// 과정 -> 총차시 기본값: 대림대 기본=8·특화/AI특화=12. 가천대(과정 미표기)는 8 기본(설정 패널서 수정).
 export function defaultChasi(courseType) {
-  return /기본/.test(courseType || "") ? 8 : 12;
+  const t = (courseType || "").toString();
+  if (!t) return 8;
+  return /기본/.test(t) ? 8 : 12;
 }
 
 // "2026.06.20." -> {m:6, d:20}
