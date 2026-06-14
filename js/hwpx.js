@@ -495,14 +495,22 @@ export async function buildCaseBookHwpx(templateBuf, data) {
       `${period} / ${fmtTime(fd.start)} ~ ${fmtTime(fd.end)}`);
   }
 
-  // 후기 예시(학생→학부모→강사, charPr 46 단일 run)을 AI 후기로 교체
+  // 후기 예시(학생→학부모→강사) 단락을 AI 후기로 교체 + 왼쪽정렬·줄간격160·자동줄바꿈
+  // (결과보고서 추진의견과 동일 처리: 단락 paraPr→leftPara, linesegarray 제거)
   const reviews = data.reviews || {};
   const order = ["학생", "학부모", "강사"];
   let ri = 0;
-  xml = xml.replace(/<hp:run charPrIDRef="46"><hp:t>예시\(참고\)[^<]*<\/hp:t><\/hp:run>/g, (m) => {
-    const t = (reviews[order[ri++]] || "").trim();
-    return t ? `<hp:run charPrIDRef="${cloner.black(46)}"><hp:t>${xmlEsc(t)}</hp:t></hp:run>` : m;
-  });
+  xml = xml.replace(/<hp:p\b([^>]*)>((?:(?!<\/hp:p>)[\s\S])*?<hp:run charPrIDRef="46"><hp:t>예시\(참고\)[^<]*<\/hp:t><\/hp:run>(?:(?!<\/hp:p>)[\s\S])*?)<\/hp:p>/g,
+    (m, attrs, body) => {
+      const t = (reviews[order[ri++]] || "").trim();
+      if (!t) return m;   // 후기 없으면 예시 유지
+      const pp = attrs.match(/paraPrIDRef="(\d+)"/);
+      const newAttrs = pp ? attrs.replace(/paraPrIDRef="\d+"/, `paraPrIDRef="${cloner.leftPara(pp[1])}"`) : attrs;
+      let nb = body.replace(/<hp:run charPrIDRef="46"><hp:t>예시\(참고\)[^<]*<\/hp:t><\/hp:run>/,
+        `<hp:run charPrIDRef="46"><hp:t>${xmlEsc(t)}</hp:t></hp:run>`);
+      nb = nb.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/, "");
+      return `<hp:p${newAttrs}>${nb}</hp:p>`;
+    });
 
   zip.file(path, xml);
   zip.file("Contents/header.xml", header.xml);
