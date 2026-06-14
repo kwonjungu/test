@@ -111,104 +111,15 @@ function fmtTime(s) {
 }
 const rgEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// header.xml의 charPr을 검정(#000000) 복제본으로 만들어 id를 돌려주는 클로저
-// (폼마다 같은 charPr이 다른 용도로 쓰여 전역 색변경은 위험 → 채우는 run만 교체)
+// 서식은 원본 그대로 두고 텍스트만 치환하는 정책 → 모든 메서드는 원본 id를 그대로 반환(no-op).
+// (이전엔 검정·11pt·함초롬 강제 통일을 했으나, 양식과 충돌하여 폰트 꼬임이 생겨 비활성화)
 function makeBlackCloner(header) {
-  let maxId = Math.max(...[...header.xml.matchAll(/<hh:charPr id="(\d+)"/g)].map(m => +m[1]));
-  const cache = {};
-  // lang 그룹별 '함초롬바탕' 폰트 id 수집 (서류마다 id가 다름)
-  const fontIds = {};
-  for (const fm of header.xml.matchAll(/<hh:fontface lang="([^"]+)"[^>]*>([\s\S]*?)<\/hh:fontface>/g)) {
-    const f = fm[2].match(/<hh:font id="(\d+)"[^>]*face="함초롬바탕"/);
-    if (f) fontIds[fm[1].toLowerCase()] = f[1];
-  }
   return {
     get xml() { return header.xml; },
-    // 채워넣는 글자 통일: 검정(#000000) + 11pt(height 1100) + 함초롬바탕 + 정자체(기울임/밑줄/취소선 제거)
-    black(cid) {
-      if (cache[cid] != null) return cache[cid];
-      const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
-      if (!m) return cid;
-      const block = m[0];
-      const color = block.match(/textColor="([^"]+)"/);
-      const height = block.match(/\bheight="(\d+)"/);
-      const fr = block.match(/<hh:fontRef\b[^>]*hangul="(\d+)"/);
-      const isBlack = color && color[1].toUpperCase() === "#000000";
-      const is11 = height && height[1] === "1100";
-      const isFont = fr && fontIds.hangul != null && fr[1] === fontIds.hangul;
-      const noItalic = !/<hh:italic\/>/.test(block);
-      if (isBlack && is11 && isFont && noItalic) { cache[cid] = cid; return cid; }
-      const newId = ++maxId;
-      let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
-      clone = color ? clone.replace(/textColor="[^"]+"/, 'textColor="#000000"')
-                    : clone.replace(/(<hh:charPr id="\d+")/, '$1 textColor="#000000"');
-      clone = height ? clone.replace(/\bheight="\d+"/, 'height="1100"')
-                     : clone.replace(/(<hh:charPr id="\d+")/, '$1 height="1100"');
-      // 폰트(fontRef 각 lang)를 함초롬바탕으로
-      clone = clone.replace(/<hh:fontRef\b[^>]*\/>/, f =>
-        f.replace(/(hangul|latin|hanja|japanese|other|symbol|user)="\d+"/g,
-          (a, lang) => fontIds[lang] != null ? `${lang}="${fontIds[lang]}"` : a));
-      // 정자체화: 기울임 제거, 밑줄·취소선 없음
-      clone = clone.replace(/<hh:italic\/>/, "");
-      clone = clone.replace(/<hh:underline\b[^/]*\/>/, '<hh:underline type="NONE" shape="SOLID" color="#000000"/>');
-      clone = clone.replace(/<hh:strikeout\b[^/]*\/>/, '<hh:strikeout shape="NONE" color="#000000"/>');
-      header.xml = header.xml.replace(block, block + clone)
-        .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
-      cache[cid] = newId;
-      return newId;
-    },
-    // 색만 검정으로(크기·폰트·볼드 유지) — 라벨용
-    colorBlack(cid) {
-      const key = "c" + cid;
-      if (cache[key] != null) return cache[key];
-      const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
-      if (!m) return cid;
-      const block = m[0];
-      const color = block.match(/textColor="([^"]+)"/);
-      if (color && color[1].toUpperCase() === "#000000") { cache[key] = cid; return cid; }
-      const newId = ++maxId;
-      let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
-      clone = color ? clone.replace(/textColor="[^"]+"/, 'textColor="#000000"')
-                    : clone.replace(/(<hh:charPr id="\d+")/, '$1 textColor="#000000"');
-      header.xml = header.xml.replace(block, block + clone)
-        .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
-      cache[key] = newId;
-      return newId;
-    },
-    // 글자 크기만 변경(색·폰트·볼드 유지) — 제목 크기 보정용
-    resize(cid, h) {
-      const key = "r" + cid + "_" + h;
-      if (cache[key] != null) return cache[key];
-      const m = header.xml.match(new RegExp(`<hh:charPr id="${cid}"[\\s\\S]*?</hh:charPr>`));
-      if (!m) return cid;
-      const block = m[0];
-      if (new RegExp(`\\bheight="${h}"`).test(block)) { cache[key] = cid; return cid; }
-      const newId = ++maxId;
-      let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
-      clone = /\bheight="\d+"/.test(clone) ? clone.replace(/\bheight="\d+"/, `height="${h}"`)
-                                           : clone.replace(/(<hh:charPr id="\d+")/, `$1 height="${h}"`);
-      header.xml = header.xml.replace(block, block + clone)
-        .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
-      cache[key] = newId;
-      return newId;
-    },
-    // 왼쪽정렬 + 줄간격 160% paraPr 생성(srcId 복제) — 의견 칸 자동 줄바꿈용
-    leftPara(srcId) {
-      const key = "p" + srcId;
-      if (cache[key] != null) return cache[key];
-      const m = header.xml.match(new RegExp(`<hh:paraPr id="${srcId}"[\\s\\S]*?</hh:paraPr>`));
-      if (!m) return srcId;
-      let pmax = Math.max(...[...header.xml.matchAll(/<hh:paraPr id="(\d+)"/g)].map(x => +x[1]));
-      const newId = ++pmax;
-      let clone = m[0].replace(`id="${srcId}"`, `id="${newId}"`)
-        .replace(/<hh:align\b[^>]*\/>/, '<hh:align horizontal="LEFT" vertical="BASELINE"/>')
-        .replace(/<hh:lineSpacing type="[^"]*" value="\d+" unit="([^"]*)"\/>/g, '<hh:lineSpacing type="PERCENT" value="160" unit="$1"/>')
-        .replace(/<hc:intent value="-?\d+" unit="([^"]*)"\/>/g, '<hc:intent value="0" unit="$1"/>');
-      header.xml = header.xml.replace(m[0], m[0] + clone)
-        .replace(/(<hh:paraProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
-      cache[key] = newId;
-      return newId;
-    }
+    black(cid) { return cid; },
+    colorBlack(cid) { return cid; },
+    resize(cid) { return cid; },
+    leftPara(srcId) { return srcId; }
   };
 }
 
