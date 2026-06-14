@@ -387,29 +387,49 @@ function fillMasterDays(xml, days) {
   return xml;
 }
 
-// 교구 관리대장 — 사용자 완성본(마스터) 기준 치환
-// data: { program, school, org, mainTeacher, equipQty, days:[{date,start,end}], year }
-export async function buildEquipmentLedgerHwpx(templateBuf, data) {
-  const zip = await JSZip.loadAsync(templateBuf);
-  const path = "Contents/section0.xml";
-  let xml = await zip.file(path).async("string");
+// 공통 마스터 치환: 일차·기간·각종 날짜형식 + 프로그램/학교/기관/담당자/교구수량
+function applyMaster(xml, data) {
   const days = (data.days || []).filter(d => d && d.date);
-
   if (days.length) {
-    xml = fillMasterDays(xml, days);
+    xml = fillMasterDays(xml, days);                 // 일차 단락 + "2026년 06월 20일 ~ 06월 21일"(pad)
     const f = days[0].date, l = days[days.length - 1].date;
-    // 수령일시(시작일) / 제출일(마지막일)
-    xml = replaceAllText(xml, `2026.${pad2(M.d1.m)}.${pad2(M.d1.d)}`, `2026.${pad2(f.m)}.${pad2(f.d)}`);
+    // 서약서형 "2026년 6월 20일 ~ 2026년 6월 21일" (2026년 2회·pad 없음) — 단독 nopad보다 먼저
+    xml = replaceAllText(xml, `2026년 ${M.d1.m}월 ${M.d1.d}일 ~ 2026년 ${M.d2.m}월 ${M.d2.d}일`,
+      `2026년 ${f.m}월 ${f.d}일 ~ 2026년 ${l.m}월 ${l.d}일`);
+    // dot 형식 "2026. 06. 20." / "2026. 06. 21."
+    xml = replaceAllText(xml, `2026. ${pad2(M.d1.m)}. ${pad2(M.d1.d)}.`, `2026. ${pad2(f.m)}. ${pad2(f.d)}.`);
     xml = replaceAllText(xml, `2026. ${pad2(M.d2.m)}. ${pad2(M.d2.d)}.`, `2026. ${pad2(l.m)}. ${pad2(l.d)}.`);
+    // 수령일시 "2026.06.20"
+    xml = replaceAllText(xml, `2026.${pad2(M.d1.m)}.${pad2(M.d1.d)}`, `2026.${pad2(f.m)}.${pad2(f.d)}`);
+    // 단독 nopad "2026년 6월 21일"(지급·체크리스트 종료일), "2026년 6월 20일"(시작일)
+    xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, `2026년 ${l.m}월 ${l.d}일`);
+    xml = replaceAllText(xml, `2026년 ${M.d1.m}월 ${M.d1.d}일`, `2026년 ${f.m}월 ${f.d}일`);
   }
   if (data.program) xml = replaceAllText(xml, M.program, data.program);
   if (data.school) xml = replaceAllText(xml, M.school, data.school);
   if (data.org) xml = replaceAllText(xml, M.org, data.org);
   if (data.mainTeacher) xml = replaceAllText(xml, M.main, data.mainTeacher);
+  if (data.assistantTeacher) xml = replaceAllText(xml, M.assist, data.assistantTeacher);
+  if (data.safetyManager) xml = replaceAllText(xml, M.safety, data.safetyManager);
   if (data.equipQty) xml = replaceAllText(xml, `${M.qty}개`, `${data.equipQty}개`);
-
+  return xml;
+}
+// 공통: 마스터 hwpx 로드→applyMaster→(extra)→저장
+async function buildFromMaster(templateBuf, data, extra) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  xml = applyMaster(xml, data);
+  if (extra) xml = extra(xml, data);
   zip.file(path, xml);
   return packageHwpx(zip);
+}
+
+// 교구 관리대장 — 사용자 완성본(마스터) 기준 치환
+// 박힌값: 프로그램/증안초/대림대학교/권준구/25개/06.20~21, 수령일시(시작일)·제출일(마지막일)
+// data: { program, school, org, mainTeacher, equipQty, days:[{date,start,end}], year }
+export async function buildEquipmentLedgerHwpx(templateBuf, data) {
+  return buildFromMaster(templateBuf, data);   // applyMaster가 일차·기간·수령일시·제출일·담당자·교구수량 처리
 }
 
 // 결과보고서 '4. 프로그램 추진 의견'의 주/보조/안전 라벨 단락 뒤에 AI 의견 단락 삽입
@@ -504,87 +524,63 @@ function fillSafetyActivities(xml, cloner) {
   return xml;
 }
 
-// 안전업무일지 (안전관리자 서류) — 프로그램/기간/운영일시/운영기관/안전관리자 성명 채움
-// + 업무내용 30개 풀에서 랜덤 10개(검정·맑은고딕 11pt)
+// 안전업무일지 — 사용자 완성본(마스터) 기준. 활동은 30개 풀에서 매번 랜덤 10개로 교체
+// 완성본 활동 run은 charPr 28(검정·정자체). 풀에 있는 텍스트인 run만 순서대로 교체
+function fillSafetyActivitiesMaster(xml) {
+  const pool = SAFETY_ACTIVITIES.slice();
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const picked = pool.slice(0, 10);
+  const set = new Set(SAFETY_ACTIVITIES);
+  let i = 0;
+  return xml.replace(/<hp:run charPrIDRef="28"><hp:t>([^<]*)<\/hp:t><\/hp:run>/g, (m, t) => {
+    if (set.has(t.trim()) && i < picked.length)
+      return `<hp:run charPrIDRef="28"><hp:t>${xmlEsc(picked[i++])}</hp:t></hp:run>`;
+    return m;
+  });
+}
+// 안전업무일지 — 프로그램/기간/운영일시/운영기관/안전관리자(이소정) + 활동 랜덤 10개
 export function buildSafetyLogHwpx(templateBuf, data) {
-  return buildPlaceholderHwpx(templateBuf, data, null, fillSafetyActivities);
+  return buildFromMaster(templateBuf, data, (xml) => fillSafetyActivitiesMaster(xml));
 }
 
-// 안전관리 서약서 (3-2) — 캠프명/일시·장소/현장안전담당(안전관리자)/서약일 채움
-// 운영기관·PM 블록은 템플릿 고정값 유지. data: { program, school, safetyManager, days, year }
+// 안전관리 서약서 (3-2) — 사용자 완성본(마스터) 기준
+// 박힌값: 캠프명(program)/일시·장소("2026년 6월 20일 ~ 2026년 6월 21일 / 증안초등학교")
+//        /현장안전담당(이소정 2곳)/서약일("2026. 06. 20.")
+// 운영기관 산학협력단·PM 이양창·안전관리자 최지수는 고정 유지(치환 안 함)
 export async function buildSafetyPledgeHwpx(templateBuf, data) {
-  const zip = await JSZip.loadAsync(templateBuf);
-  const path = "Contents/section0.xml";
-  let xml = await zip.file(path).async("string");
-  const header = { xml: await zip.file("Contents/header.xml").async("string") };
-  const cloner = makeBlackCloner(header);
-  const days = (data.days || []).filter(d => d && d.date);
-  const year = data.year || 2026;
-  const first = days[0]?.date, last = days[days.length - 1]?.date;
-
-  // 드롭다운 메모/옵션 비우기 후 캠프명 채우기
-  xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
-  xml = xml.replace(/<hp:t>\((?:기본|특화|AI특화)\/[^<]*<\/hp:t>/g, "<hp:t></hp:t>");
-  if (data.program) xml = fillFieldBlack(xml, cloner, "프로그램명 작성", data.program);
-
-  // 일시/장소: "2026년 [ 00월 00일 ~ ] 2026년 [ 00월 00일 / 00초등학교]"
-  if (first) xml = fillFieldBlack(xml, cloner, " 00월 00일 ~ ", ` ${first.m}월 ${first.d}일 ~ `);
-  if (last) xml = fillFieldBlack(xml, cloner, " 00월 00일 / 00초등학교", ` ${last.m}월 ${last.d}일 / ${data.school || "00초등학교"}`);
-
-  // 현장안전담당(안전관리자) 성명 + 서명란
-  if (data.safetyManager) {
-    xml = fillFieldBlack(xml, cloner, "안전관리자 성명", data.safetyManager);
-    xml = fillFieldBlack(xml, cloner, "현장안전담당:   ", `현장안전담당:   ${data.safetyManager}   `);
-  }
-  // 서약일 = 첫 캠프일
-  if (first) xml = fillFieldBlack(xml, cloner, "2026. 00. 00.", `${year}. ${pad2(first.m)}. ${pad2(first.d)}.`);
-
-  zip.file(path, xml);
-  zip.file("Contents/header.xml", header.xml);
-  return packageHwpx(zip);
+  return buildFromMaster(templateBuf, data);
 }
 
-// 프로그램 운영 사례집 (붙임2 후기 모음) — 프로그램명/운영장소/운영일시 채움
-// data: { program, school, days, year, reviews:{학생,학부모,강사} }  (reviews 없으면 예시 유지)
+// 프로그램 운영 사례집 — 사용자 완성본(마스터) 기준
+// 박힌값: program/운영장소(증안초)/운영일시(기간+시간)/후기 3개(charPr 47, 이미 AI작성)
+// data: { program, school, days, year, reviews:{학생,학부모,강사} }  (reviews 없으면 완성본 후기 유지)
 export async function buildCaseBookHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
-  const header = { xml: await zip.file("Contents/header.xml").async("string") };
-  const cloner = makeBlackCloner(header);
   const days = (data.days || []).filter(d => d && d.date);
-  const year = data.year || 2026;
-  const first = days[0]?.date, last = days[days.length - 1]?.date;
+  const d0 = days[0];
 
-  if (data.program) xml = fillFieldBlack(xml, cloner, "해당 프로그램을 복사하여 붙여 넣어주세요", data.program);
-  if (data.school) xml = fillFieldBlack(xml, cloner, "교육장소를 작성해주세요", data.school);
-  if (first && last) {
-    const fd = days[0];
-    const period = `${year}년 ${pad2(first.m)}월 ${pad2(first.d)}일 ~ ${pad2(last.m)}월 ${pad2(last.d)}일`;
-    // 운영일시 자리표시자: "00시" 앞 공백 2칸
-    xml = fillFieldBlack(xml, cloner, "2026년 00월 00일 ~ 00월 00일 /  00시 00분 ~ 00시 00분",
-      `${period} / ${fmtTime(fd.start)} ~ ${fmtTime(fd.end)}`);
+  if (data.program) xml = replaceAllText(xml, M.program, data.program);
+  if (data.school) xml = replaceAllText(xml, M.school, data.school);
+  if (days.length) {
+    const f = days[0].date, l = days[days.length - 1].date;
+    // 운영일시: "2026년 06월 20일 ~ 06월 21일 / 09시 00분 ~ 12시 10분"
+    xml = replaceAllText(xml, `2026년 ${pad2(M.d1.m)}월 ${pad2(M.d1.d)}일 ~ ${pad2(M.d2.m)}월 ${pad2(M.d2.d)}일`,
+      `2026년 ${pad2(f.m)}월 ${pad2(f.d)}일 ~ ${pad2(l.m)}월 ${pad2(l.d)}일`);
+    if (d0) xml = replaceAllText(xml, `${fmtTime(M.amStart)} ~ ${fmtTime(M.amEnd)}`, `${fmtTime(d0.start)} ~ ${fmtTime(d0.end)}`);
   }
 
-  // 후기 예시(학생→학부모→강사) 단락을 AI 후기로 교체 + 왼쪽정렬·줄간격160·자동줄바꿈
-  // (결과보고서 추진의견과 동일 처리: 단락 paraPr→leftPara, linesegarray 제거)
+  // 후기 3개(charPr 47, 학생→학부모→강사 순)를 새 AI 후기로 교체
   const reviews = data.reviews || {};
   const order = ["학생", "학부모", "강사"];
   let ri = 0;
-  xml = xml.replace(/<hp:p\b([^>]*)>((?:(?!<\/hp:p>)[\s\S])*?<hp:run charPrIDRef="46"><hp:t>예시\(참고\)[^<]*<\/hp:t><\/hp:run>(?:(?!<\/hp:p>)[\s\S])*?)<\/hp:p>/g,
-    (m, attrs, body) => {
-      const t = (reviews[order[ri++]] || "").trim();
-      if (!t) return m;   // 후기 없으면 예시 유지
-      const pp = attrs.match(/paraPrIDRef="(\d+)"/);
-      const newAttrs = pp ? attrs.replace(/paraPrIDRef="\d+"/, `paraPrIDRef="${cloner.leftPara(pp[1])}"`) : attrs;
-      let nb = body.replace(/<hp:run charPrIDRef="46"><hp:t>예시\(참고\)[^<]*<\/hp:t><\/hp:run>/,
-        `<hp:run charPrIDRef="${cloner.resize(46, 1100)}"><hp:t>${xmlEsc(t)}</hp:t></hp:run>`);
-      nb = nb.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/, "");
-      return `<hp:p${newAttrs}>${nb}</hp:p>`;
-    });
+  xml = xml.replace(/<hp:run charPrIDRef="47"><hp:t>[^<]*<\/hp:t><\/hp:run>/g, (m) => {
+    const t = (reviews[order[ri++]] || "").trim();
+    return t ? `<hp:run charPrIDRef="47"><hp:t>${xmlEsc(t)}</hp:t></hp:run>` : m;
+  });
 
   zip.file(path, xml);
-  zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
 }
 
@@ -616,15 +612,36 @@ function fillPayBody(xml, cloner, data) {
   return xml;
 }
 
-// 외부 전문가 기술 활용비 지급신청서 (주강사·보조강사 공용) — 캠프 1건당 1부
+// 외부 전문가 기술 활용비 지급신청서
+//  · 주강사료: 사용자 완성본(마스터) 기준 — 박힌값(노벨/증안/초등 저학년/산출 75,000·8차시/금액 1,200,000/날짜) 치환
+//  · 보조강사료: 완성본 미제공 → 기존 자리표시자 양식 유지
 // data: { program, school, eduTarget, payoutLines, amount, lastDate, slots, amountSlot, year }
+const JUPAY_SLOTS = [" (오전) 6/21 75,000원 X 1학급 X 8차시", " (오후) 6/21 75,000원 X 1학급 X 8차시"];
+const JUPAY_AMT = " 1,200,000원";
 export async function buildPayApplicationHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
+
+  if (xml.includes(M.program)) {
+    // ── 주강사료 완성본 마스터 ──
+    if (data.program) xml = replaceAllText(xml, M.program, data.program);
+    if (data.school) xml = replaceAllText(xml, M.school, data.school);
+    if (data.eduTarget) xml = replaceAllText(xml, " 초등 저학년", " " + data.eduTarget);
+    const lines = data.payoutLines || [];
+    JUPAY_SLOTS.forEach((slot, i) => {
+      xml = (i < lines.length) ? replaceAllText(xml, slot, " " + lines[i])
+                               : replaceAllText(xml, slot, "");
+    });
+    if (data.amount) xml = replaceAllText(xml, JUPAY_AMT, " " + data.amount + "원");
+    if (data.lastDate) xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, data.lastDate);
+    zip.file(path, xml);
+    return packageHwpx(zip);
+  }
+
+  // ── 보조강사료 기존 양식(자리표시자) ──
   const header = { xml: await zip.file("Contents/header.xml").async("string") };
   const cloner = makeBlackCloner(header);
-
   const slots = data.slots || [
     " (오전) 6/21 60,000원 X 1학급 X 4차시",
     " (오후) 6/21 60,000원 X 1학급 X 4차시",
@@ -636,35 +653,30 @@ export async function buildPayApplicationHwpx(templateBuf, data) {
       (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
     xml = xml.replace(/2026년 #월 #일/g, xmlEsc(data.lastDate));
   }
-
   zip.file(path, xml);
   zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
 }
 
-// (안전) 단기근로자 지급신청서 — 캠프 1건당 1부, 안전관리자 1인
+// (안전) 단기근로자 지급신청서 — 사용자 완성본(마스터) 기준
+// 박힌값: 노벨/증안/초등 저학년/산출("20,000원 X 1학급 X 4차시"·"(1일 한도 60,000원)")/금액 240,000/날짜
 // data: { program, school, eduTarget, payoutLines, amount, lastDate }
 export async function buildSafetyPayHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
-  const header = { xml: await zip.file("Contents/header.xml").async("string") };
-  const cloner = makeBlackCloner(header);
 
-  const slots = [
-    " 6/21 20,000원 X 1학급 X 3or4차시",
-    " 6/22 20,000원 X 1학급 X 3or4차시"
-  ];
-  xml = fillPayBody(xml, cloner, { ...data, slots, amountSlot: " N00,000원" });
-  // 날짜 자리표시자 "2026년  월  일" (공백 2칸) — run charPr 검정 적용
-  if (data.lastDate) {
-    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>2026년\s+월\s+일<\/hp:t>/g,
-      (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
-    xml = xml.replace(/<hp:t>2026년\s+월\s+일<\/hp:t>/g, `<hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
-  }
+  if (data.program) xml = replaceAllText(xml, M.program, data.program);
+  if (data.school) xml = replaceAllText(xml, M.school, data.school);
+  if (data.eduTarget) xml = replaceAllText(xml, " 초등 저학년", " " + data.eduTarget);
+  // 일별차시: payoutLines의 "X 1학급 X N차시"에서 추출 → 완성본 "20,000원 X 1학급 X 4차시" 갱신
+  const lines = data.payoutLines || [];
+  const cm = (lines[0] || "").match(/X 1학급 X ([\d.]+)차시/);
+  if (cm && cm[1] !== "4") xml = replaceAllText(xml, "20,000원 X 1학급 X 4차시", `20,000원 X 1학급 X ${cm[1]}차시`);
+  if (data.amount) xml = replaceAllText(xml, " 240,000원", " " + data.amount + "원");
+  if (data.lastDate) xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, data.lastDate);
 
   zip.file(path, xml);
-  zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
 }
 
@@ -706,30 +718,10 @@ export async function buildSafetyContractHwpx(templateBuf, data) {
   return packageHwpx(zip);
 }
 
-// 운영 전후 안전관리 체크리스트 — 점검책임자(안전관리자)·점검일자만 채움(체크는 수기)
+// 운영 전후 안전관리 체크리스트 — 사용자 완성본(마스터) 기준
+// 박힌값: "점검일자: 2026년 6월 20일 ... 이소정"(운영전 시작일), "날짜: 2026년 6월 21일 ... 이소정"(운영후 종료일)
 export async function buildChecklistHwpx(templateBuf, data) {
-  const zip = await JSZip.loadAsync(templateBuf);
-  const path = "Contents/section0.xml";
-  let xml = await zip.file(path).async("string");
-  const days = (data.days || []).filter(d => d && d.date);
-  const year = data.year || 2026;
-  const first = days[0]?.date, last = days[days.length - 1]?.date;
-  const fmt = o => o ? `${year}년 ${o.m}월 ${o.d}일` : null;
-  const nm = data.safetyManager || "";
-
-  // 점검책임자 이름 — 모든 점검 노드(운영 전·후)에 채움(뒤 공백/서명 보존)
-  if (nm) {
-    xml = xml.replace(/(점검책임자\s*:\s*)( {2,})(서명)/g, (m, a, sp, c) => `${a}${xmlEsc(nm)}${sp}${c}`);
-  }
-  // 운영 전 점검일자 = 시작일 (모든 "점검일자: 2026년 월 일")
-  if (first) xml = xml.replace(/(점검일자:\s*)2026년\s+월\s+일/g, (m, a) => `${a}${fmt(first)}`);
-  // 운영 후 점검 "날짜: 2026년 월 일" / "날짜 : ..." = 마지막일
-  if (last) xml = xml.replace(/(날짜\s*:\s*)2026년\s+월\s+일/g, (m, a) => `${a}${fmt(last)}`);
-  // 단독 노드 "2026년 월 일" = 마지막일
-  if (last) xml = xml.replace(/<hp:t>2026년 월 일<\/hp:t>/g, `<hp:t>${xmlEsc(fmt(last))}</hp:t>`);
-
-  zip.file(path, xml);
-  return packageHwpx(zip);
+  return buildFromMaster(templateBuf, data);   // safety(이소정)·날짜(시작/종료) 치환
 }
 
 // 다문화학생 학교장 확인서 — 클래스별, 다문화 학생 명단·학교명·인원·날짜 채움
