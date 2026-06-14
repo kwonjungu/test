@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=21";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
-  defaultChasi, fmtDate, parseSchedule, programCore
-} from "./convert.js";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js";
-import { NEIS_API_KEY } from "./config.js";
+  defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
+} from "./convert.js?v=21";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=21";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=21";
+import { NEIS_API_KEY } from "./config.js?v=21";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -376,8 +376,9 @@ function renderSettings(blocks) {
   let prevId = null;
   for (const blk of blocks) {
     const id = cssId(blk.sheet);
-    const chasi = defaultChasi(blk.courseType);
     const selProg = matchProgram(blk.program);
+    // 총차시 기본값: 선택된 프로그램이 있으면 그 프로그램 기준(특화류 12), 없으면 명단 과정 기준
+    const chasi = defaultChasiForProgram(selProg || blk.program, blk.courseType);
     const isAfternoon = /오후/.test(blk.sheet);
     const defStart = isAfternoon ? "13:00" : "09:00";
     const defEnd = isAfternoon ? "16:10" : "12:10";
@@ -442,6 +443,11 @@ function renderSettings(blocks) {
       bindDelDay(cont);
     });
     bindDelDay($(`days_${id}`));
+    // 프로그램 변경 → 해당 프로그램 기준 총차시 자동 갱신(특화류 12 / 그 외 8)
+    $(`prog_${id}`).addEventListener("change", (ev) => {
+      const totEl = $(`tot_${id}`);
+      if (totEl) totEl.value = defaultChasiForProgram(ev.target.value, "");
+    });
     // 담당자 입력 변화 → 담당자 필요 버튼 게이팅 갱신
     $(`teacher_${id}`).addEventListener("input", updateGatedBtns);
     $(`safety_${id}`).addEventListener("input", updateGatedBtns);

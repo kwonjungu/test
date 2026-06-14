@@ -75,6 +75,20 @@ export function defaultChasi(courseType) {
   return /기본/.test(t) ? 8 : 12;
 }
 
+// 가천대 12차시 프로그램(특화·AI특화·다문화특화) — 드롭다운 프로그램명에 과정 표기가 없어 키워드로 판별
+const TWELVE_CHASI_KEYS = [
+  /주니어\s*CEO|메디\s*로봇|출시기/,   // (AI특화/초고) 주니어 CEO들의 AI 메디 로봇 출시기
+  /디자인씽킹|해커톤/,                  // (AI특화/고등) 디자인씽킹 기반 AI 메디컬 해커톤
+  /다가치|국경\s*없는|의료대|多/        // (다문화특화/초고) 다(多)가치 튼튼, 국경 없는 의료대!
+];
+// 프로그램명 기준 총차시 기본값: 대림대 과정 토큰(특화→12) + 가천대 키워드(특화류→12), 그 외 8.
+export function defaultChasiForProgram(program, courseType) {
+  const type = (courseType != null ? courseType : courseTypeFromProgram(program)) || "";
+  if (/특화/.test(type)) return 12;                                  // 대림대 (특화/…)·(AI특화/…)
+  if (TWELVE_CHASI_KEYS.some(re => re.test(program || ""))) return 12; // 가천대 특화류
+  return defaultChasi(type);
+}
+
 // "2026.06.20." -> {m:6, d:20}
 export function parseYmd(s) {
   const m = (s || "").toString().match(/(\d{4})[.\-/\s]+(\d{1,2})[.\-/\s]+(\d{1,2})/);
