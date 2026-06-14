@@ -710,14 +710,16 @@ export async function buildChecklistHwpx(templateBuf, data) {
   const fmt = o => o ? `${year}년 ${o.m}월 ${o.d}일` : null;
   const nm = data.safetyManager || "";
 
-  // 점검책임자 이름 (모든 "점검책임자 :   서명" 패턴, 뒤 공백/서명 보존)
+  // 점검책임자 이름 — 모든 점검 노드(운영 전·후)에 채움(뒤 공백/서명 보존)
   if (nm) {
     xml = xml.replace(/(점검책임자\s*:\s*)( {2,})(서명)/g, (m, a, sp, c) => `${a}${xmlEsc(nm)}${sp}${c}`);
   }
-  // 운영 전 점검일자 = 시작일
-  if (first) xml = xml.replace(/점검일자:\s*2026년\s+월\s+일/, `점검일자: ${fmt(first)}`);
-  // 운영 후 날짜(단독 노드 "2026년 월 일") = 마지막일
-  if (last) xml = xml.replace(/<hp:t>2026년 월 일<\/hp:t>/, `<hp:t>${xmlEsc(fmt(last))}</hp:t>`);
+  // 운영 전 점검일자 = 시작일 (모든 "점검일자: 2026년 월 일")
+  if (first) xml = xml.replace(/(점검일자:\s*)2026년\s+월\s+일/g, (m, a) => `${a}${fmt(first)}`);
+  // 운영 후 점검 "날짜: 2026년 월 일" / "날짜 : ..." = 마지막일
+  if (last) xml = xml.replace(/(날짜\s*:\s*)2026년\s+월\s+일/g, (m, a) => `${a}${fmt(last)}`);
+  // 단독 노드 "2026년 월 일" = 마지막일
+  if (last) xml = xml.replace(/<hp:t>2026년 월 일<\/hp:t>/g, `<hp:t>${xmlEsc(fmt(last))}</hp:t>`);
 
   zip.file(path, xml);
   return packageHwpx(zip);
