@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=22";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=23";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=22";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=22";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=22";
-import { NEIS_API_KEY } from "./config.js?v=22";
+} from "./convert.js?v=23";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=23";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=23";
+import { NEIS_API_KEY } from "./config.js?v=23";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -1079,9 +1079,13 @@ function setupGachonUI(bind) {
     <div class="dl-group">
       <h4 class="dl-h dl-h-safety">🟠 3. 현장안전관리자</h4>
       <div class="dl-grid">
-        <button id="gDlWork" class="btn-dl dl-safety" disabled><b class="idx">3-1</b>업무 보고서<small>hwpx · 안전관리자 필요 · 캠프 1부</small></button>
+        <a class="btn-dl dl-safety" href="templates/gachon/안전관리이수증양식.hwpx" download="3-1. 안전관리 이수증 양식.hwpx"><b class="idx">3-1</b>안전관리 이수증<small>빈 양식 · 직접 작성</small></a>
+        <a class="btn-dl dl-safety" href="templates/gachon/안전관리서약서양식.hwpx" download="3-2. 안전관리 서약서 양식.hwpx"><b class="idx">3-2</b>안전관리 서약서<small>빈 양식 · 직접 작성</small></a>
+        <a class="btn-dl dl-safety" href="templates/gachon/안전결과보고서양식.hwpx" download="3-3. 안전결과보고서 양식.hwpx"><b class="idx">3-3</b>안전결과보고서<small>빈 양식 · 직접 작성</small></a>
+        <a class="btn-dl dl-safety" href="templates/gachon/안전체크리스트양식.hwpx" download="3-4. 운영 전후 안전 체크리스트 양식.hwpx"><b class="idx">3-4</b>안전 체크리스트<small>빈 양식 · 직접 작성</small></a>
+        <button id="gDlWork" class="btn-dl dl-safety" disabled><b class="idx">3-5</b>업무 보고서<small>hwpx · 안전관리자 필요 · 정산 · 캠프 1부</small></button>
       </div>
-      <p class="hint" style="margin-top:8px">※ 안전관리 이수증·서약서·안전결과보고서·운영 전후 체크리스트는 <b>구버전(.hwp) 양식</b>이라 자동 작성 대상이 아닙니다. 받으신 원본 양식에 직접 작성해 제출하세요.</p>
+      <p class="hint" style="margin-top:8px">※ 3-1~3-4는 한글 <b>구버전(.hwp)</b> 양식이라 현재 빈 양식만 제공됩니다(자동 작성 불가). <b>.hwpx로 변환</b>해 주시면 학교·기간·안전관리자 자동 작성을 추가할 수 있습니다.</p>
     </div>`;
 
   // 사전제출 안내 카드 (강사지원서·출강확인서) — 다운로드 영역 위에 삽입

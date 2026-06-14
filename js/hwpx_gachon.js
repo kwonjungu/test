@@ -174,32 +174,66 @@ export async function buildGachonMaterialHwpx(templateBuf, data) {
 // ===== 4) 결과보고서 (보조강사) — AI 추진의견 4칸 중 주/보조/안전 =====
 // data: { program, school, days, opinions:{주강사,보조강사,안전관리자} }
 // 추진의견 칸은 라벨 단락(▶ (○○ 작성용))과 같은 셀/다음 셀 구조. 대림대와 동일 접근.
-function fillGachonOpinions(xml, opinions) {
+// header의 paraPr를 왼쪽정렬로 복제(추진의견 칸 왼쪽정렬용). 새 id 반환.
+function makeLeftParaCloner(header) {
+  const cache = {};
+  return function leftPara(srcId) {
+    if (cache[srcId] != null) return cache[srcId];
+    const m = header.xml.match(new RegExp(`<hh:paraPr id="${srcId}"[\\s\\S]*?</hh:paraPr>`));
+    if (!m) return srcId;
+    const ids = [...header.xml.matchAll(/<hh:paraPr id="(\d+)"/g)].map(x => +x[1]);
+    const newId = (ids.length ? Math.max(...ids) : 0) + 1;
+    let clone = m[0].replace(`id="${srcId}"`, `id="${newId}"`);
+    clone = /<hh:align\b[^>]*\/>/.test(clone)
+      ? clone.replace(/<hh:align\b[^>]*\/>/, '<hh:align horizontal="LEFT" vertical="BASELINE"/>')
+      : clone.replace(/(<hh:paraPr id="\d+"[^>]*>)/, '$1<hh:align horizontal="LEFT" vertical="BASELINE"/>');
+    header.xml = header.xml.replace(m[0], m[0] + clone)
+      .replace(/(<hh:paraProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
+    cache[srcId] = newId;
+    return newId;
+  };
+}
+
+// 추진의견 주입: 라벨 다음 빈 작성칸 run에 본문 삽입 + 그 단락을 왼쪽정렬·자동줄바꿈 처리
+function fillGachonOpinions(xml, header, leftPara, opinions) {
   const ops = opinions || {};
-  // 각 라벨 단락 다음 행에 비어 있는 작성칸(자체닫힘 빈 run)이 있다. 라벨 뒤 첫 빈 run에 주입.
   const labels = { "주강사": "(주강사 작성용)", "보조강사": "(보조강사 작성용)", "안전관리자": "(안전관리자 작성용)" };
   for (const role of Object.keys(labels)) {
     const text = (ops[role] || "").trim();
     if (!text) continue;
     const li = xml.indexOf(labels[role]);
     if (li < 0) continue;
-    // 라벨 위치 이후의 첫 빈 run: <hp:run charPrIDRef="N"/> (자체닫힘) 또는 <hp:run ...><hp:t></hp:t></hp:run>
-    const after = xml.slice(li);
-    const m = after.match(/<hp:run charPrIDRef="(\d+)"\/>|<hp:run charPrIDRef="(\d+)"><hp:t><\/hp:t><\/hp:run>/);
-    if (!m) continue;
-    const cid = m[1] || m[2];
-    const repl = `<hp:run charPrIDRef="${cid}"><hp:t>${xmlEsc(text)}</hp:t></hp:run>`;
-    xml = xml.slice(0, li) + after.replace(m[0], repl);
+    // 라벨 이후 첫 빈 run(자체닫힘 또는 빈 텍스트)
+    const relM = xml.slice(li).match(/<hp:run charPrIDRef="(\d+)"\/>|<hp:run charPrIDRef="(\d+)"><hp:t><\/hp:t><\/hp:run>/);
+    if (!relM) continue;
+    const runStr = relM[0];
+    const cid = relM[1] || relM[2];
+    const pos = li + xml.slice(li).indexOf(runStr);
+    // 빈 run을 감싸는 <hp:p> 경계
+    const pStart = xml.lastIndexOf("<hp:p ", pos);
+    const pEndIdx = xml.indexOf("</hp:p>", pos);
+    if (pStart < 0 || pEndIdx < 0) continue;
+    const pEnd = pEndIdx + 7;
+    let para = xml.slice(pStart, pEnd);
+    const pp = para.match(/paraPrIDRef="(\d+)"/);
+    if (pp) para = para.replace(/paraPrIDRef="\d+"/, `paraPrIDRef="${leftPara(pp[1])}"`);  // 왼쪽정렬
+    para = para.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/, "");                 // 고정 줄정보 제거 → 자동 줄바꿈
+    para = para.replace(runStr, `<hp:run charPrIDRef="${cid}"><hp:t>${xmlEsc(text)}</hp:t></hp:run>`);
+    xml = xml.slice(0, pStart) + para + xml.slice(pEnd);
   }
   return xml;
 }
 export async function buildGachonReportHwpx(templateBuf, data) {
-  const { zip, path } = await loadSection(templateBuf);
-  let xml = await zip.file(path).async("string");
+  const zip = await JSZip.loadAsync(templateBuf);
+  const secPath = "Contents/section0.xml", hdrPath = "Contents/header.xml";
+  let xml = await zip.file(secPath).async("string");
+  const header = { xml: await zip.file(hdrPath).async("string") };
+  const leftPara = makeLeftParaCloner(header);
   xml = fillCommonHead(xml, data);
   xml = fillDates(xml, data.days);
-  if (data.opinions) xml = fillGachonOpinions(xml, data.opinions);
-  zip.file(path, xml);
+  if (data.opinions) xml = fillGachonOpinions(xml, header, leftPara, data.opinions);
+  zip.file(secPath, xml);
+  zip.file(hdrPath, header.xml);
   return packageHwpx(zip);
 }
 
