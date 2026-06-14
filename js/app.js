@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=21";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=22";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=21";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=21";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=21";
-import { NEIS_API_KEY } from "./config.js?v=21";
+} from "./convert.js?v=22";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=22";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=22";
+import { NEIS_API_KEY } from "./config.js?v=22";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -585,8 +585,9 @@ function refreshDownloadButtons() {
   $("shareBox").style.display = "flex";   // 데이터 준비되면 공유 박스 노출
   $("aiBox").style.display = "flex";      // AI 추진의견 박스 노출
   const total = lastClasses.reduce((n, c) => n + (c.rows ? c.rows.length : 0), 0);
-  $("downloadBtn").disabled = total === 0;
+  // 가천대 모드는 대림대 버튼이 없으므로(가천대 그리드로 교체됨) 먼저 분기
   if (ORG === "가천대학교") { refreshGachonButtons(total); return total; }
+  $("downloadBtn").disabled = total === 0;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadHwpx2Btn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
