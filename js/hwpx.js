@@ -89,6 +89,18 @@ export async function buildReceiptHwpx(templateBuf, { names, chasi, dates }) {
 // mimetype은 STORE(무압축)·첫 엔트리 유지, 나머지는 DEFLATE.
 // JSZip이 자동 추가하는 폴더 엔트리(Contents/ 등)는 원본에 없으므로 제거.
 async function packageHwpx(zip) {
+  // 빈 기본 한글 스크립트(Scripts/*.js) 제거 → "스크립트 포함 문서" 보안경고 해소.
+  // content.hpf의 item·spine itemref 참조도 함께 제거(없는 파일 참조 시 오류 방지).
+  let hadScripts = false;
+  for (const k of Object.keys(zip.files)) {
+    if (/^Scripts\//.test(k)) { delete zip.files[k]; hadScripts = true; }
+  }
+  if (hadScripts && zip.file("Contents/content.hpf")) {
+    let hpf = await zip.file("Contents/content.hpf").async("string");
+    hpf = hpf.replace(/<opf:item\b[^>]*\bid="(?:headersc|sourcesc)"[^>]*\/>/g, "");
+    hpf = hpf.replace(/<opf:itemref\b[^>]*\bidref="(?:headersc|sourcesc)"[^>]*\/>/g, "");
+    zip.file("Contents/content.hpf", hpf);
+  }
   const mt = await zip.file("mimetype").async("uint8array");
   zip.file("mimetype", mt, { compression: "STORE" });  // 키 재지정은 순서 보존
   for (const k of Object.keys(zip.files)) {
