@@ -114,12 +114,29 @@ const rgEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // 서식은 원본 그대로 두고 텍스트만 치환하는 정책 → 모든 메서드는 원본 id를 그대로 반환(no-op).
 // (이전엔 검정·11pt·함초롬 강제 통일을 했으나, 양식과 충돌하여 폰트 꼬임이 생겨 비활성화)
 function makeBlackCloner(header) {
+  const cache = {};
   return {
     get xml() { return header.xml; },
     black(cid) { return cid; },
     colorBlack(cid) { return cid; },
     resize(cid) { return cid; },
-    leftPara(srcId) { return srcId; }
+    // 결과보고서 추진의견 칸용: 왼쪽정렬 + 줄간격 160% paraPr 복제(다른 서류 미사용)
+    leftPara(srcId) {
+      const key = "p" + srcId;
+      if (cache[key] != null) return cache[key];
+      const m = header.xml.match(new RegExp(`<hh:paraPr id="${srcId}"[\\s\\S]*?</hh:paraPr>`));
+      if (!m) return srcId;
+      const pmax = Math.max(...[...header.xml.matchAll(/<hh:paraPr id="(\d+)"/g)].map(x => +x[1]));
+      const newId = pmax + 1;
+      const clone = m[0].replace(`id="${srcId}"`, `id="${newId}"`)
+        .replace(/<hh:align\b[^>]*\/>/, '<hh:align horizontal="LEFT" vertical="BASELINE"/>')
+        .replace(/<hh:lineSpacing type="[^"]*" value="\d+" unit="([^"]*)"\/>/g, '<hh:lineSpacing type="PERCENT" value="160" unit="$1"/>')
+        .replace(/<hc:intent value="-?\d+" unit="([^"]*)"\/>/g, '<hc:intent value="0" unit="$1"/>');
+      header.xml = header.xml.replace(m[0], m[0] + clone)
+        .replace(/(<hh:paraProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
+      cache[key] = newId;
+      return newId;
+    }
   };
 }
 
