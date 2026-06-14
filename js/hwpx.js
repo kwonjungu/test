@@ -476,9 +476,85 @@ function fillReportOpinions(xml, cloner, data) {
   return xml;
 }
 
-// 결과보고서 (보조강사 취합 서류) — 회차 블록 확장/삭제 + (선택)추진의견 자동삽입
-export function buildReportHwpx(templateBuf, data) {
-  return buildPlaceholderHwpx(templateBuf, data, expandReportRounds, fillReportOpinions);
+// ── 결과보고서: 사용자 완성본(마스터) 기준 치환 ──
+// 완성본 회차2 블록(「디지털새싹」 프로그램 2회차 ~ "3. 기타 운영사항" 직전)을 일수에 맞게 복제/삭제
+function expandMasterReportRounds(xml, days) {
+  const D = days.length;
+  if (D === 2) return xml;
+  const r2 = xml.indexOf("2회차");
+  if (r2 < 0) return xml;
+  const h2 = xml.lastIndexOf("「디지털새싹」 프로그램", r2);
+  const b2 = xml.lastIndexOf("<hp:p ", h2);
+  const g = xml.indexOf("3. 기타 운영사항");
+  const gs = xml.lastIndexOf("<hp:p ", g);
+  if (b2 < 0 || gs < 0 || b2 >= gs) return xml;
+  const block2 = xml.slice(b2, gs);
+  if (D < 2) return xml.slice(0, b2) + xml.slice(gs);   // 1일: 회차2 삭제
+  // 3일 이상: 회차2 블록 복제(3..D), 회차번호·일차 날짜 갱신, id 재부여
+  let maxId = Math.max(...[...xml.matchAll(/\bid="(\d{6,})"/g)].map(x => +x[1]), 0);
+  let clones = "";
+  for (let k = 3; k <= D; k++) {
+    const d = days[k - 1];
+    clones += block2
+      .replace(/<hp:t>2회차<\/hp:t>/, `<hp:t>${k}회차</hp:t>`)
+      .replace(/<hp:t>\(2일차\)[^<]*<\/hp:t>/, `<hp:t>(${k}일차) ${pad2(d.date.m)}월 ${pad2(d.date.d)}일 / ${fmtTime(d.start)} ~ ${fmtTime(d.end)}</hp:t>`)
+      .replace(/\bid="(\d{6,})"/g, () => `id="${++maxId}"`);
+  }
+  return xml.slice(0, gs) + clones + xml.slice(gs);
+}
+// 추진의견(주/보조/안전): 라벨 다음 단락의 charPr33 의견 텍스트를 새 의견으로 교체
+function fillMasterOpinions(xml, opinions) {
+  const labels = { "주강사": "(주강사 작성용)", "보조강사": "(보조강사 작성용)", "안전관리자": "(안전관리자 작성용)" };
+  for (const role of Object.keys(labels)) {
+    const t = (opinions[role] || "").trim();
+    if (!t) continue;
+    const i = xml.indexOf(labels[role]);
+    if (i < 0) continue;
+    const le = xml.indexOf("</hp:p>", i);
+    const ns = xml.indexOf("<hp:p ", le);
+    const ne = xml.indexOf("</hp:p>", ns) + 7;
+    if (ns < 0 || ne < 7) continue;
+    let para = xml.slice(ns, ne);
+    let done = false;
+    para = para.replace(/<hp:run charPrIDRef="33"><hp:t>[^<]*<\/hp:t><\/hp:run>/g, (m) => {
+      if (!done) { done = true; return `<hp:run charPrIDRef="33"><hp:t>${xmlEsc(t)}</hp:t></hp:run>`; }
+      return "";   // 같은 단락의 추가 의견 run 제거
+    });
+    if (done) xml = xml.slice(0, ns) + para + xml.slice(ne);
+  }
+  return xml;
+}
+// 결과보고서 — 완성본 마스터 기준: 회차 복제 + program/school/org/보조강사·확인자 + 날짜 + 추진의견
+export async function buildReportHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  const days = (data.days || []).filter(d => d && d.date);
+
+  if (days.length) {
+    xml = expandMasterReportRounds(xml, days);
+    const f = days[0].date, l = days[days.length - 1].date;
+    const period = `2026년 ${pad2(f.m)}월 ${pad2(f.d)}일 ~ ${pad2(l.m)}월 ${pad2(l.d)}일`;
+    const t0 = `${fmtTime(days[0].start)} ~ ${fmtTime(days[0].end)}`;
+    // 운영기간(시간 포함 먼저) → 기간 → 본문/수령대장 일차(1·2)
+    xml = replaceAllText(xml, `2026년 ${pad2(M.d1.m)}월 ${pad2(M.d1.d)}일 ~ ${pad2(M.d2.m)}월 ${pad2(M.d2.d)}일 / ${fmtTime(M.amStart)} ~ ${fmtTime(M.amEnd)}`, `${period} / ${t0}`);
+    xml = replaceAllText(xml, `2026년 ${pad2(M.d1.m)}월 ${pad2(M.d1.d)}일 ~ ${pad2(M.d2.m)}월 ${pad2(M.d2.d)}일`, period);
+    xml = replaceAllText(xml, `(1일차) ${pad2(M.d1.m)}월 ${pad2(M.d1.d)}일 / ${fmtTime(M.amStart)} ~ ${fmtTime(M.amEnd)}`,
+      `(1일차) ${pad2(f.m)}월 ${pad2(f.d)}일 / ${t0}`);
+    if (days[1]) {
+      const d2 = days[1];
+      xml = replaceAllText(xml, `(2일차) ${pad2(M.d2.m)}월 ${pad2(M.d2.d)}일 / ${fmtTime(M.amStart)} ~ ${fmtTime(M.amEnd)}`,
+        `(2일차) ${pad2(d2.date.m)}월 ${pad2(d2.date.d)}일 / ${fmtTime(d2.start)} ~ ${fmtTime(d2.end)}`);
+    }
+  }
+  if (data.program) xml = replaceAllText(xml, M.program, data.program);
+  if (data.school) xml = replaceAllText(xml, M.school, data.school);
+  if (data.org) xml = replaceAllText(xml, M.org, data.org);
+  if (data.assistantTeacher) xml = replaceAllText(xml, M.assist, data.assistantTeacher);  // 확인자(수령대장)
+  if (data.opinions) xml = fillMasterOpinions(xml, data.opinions);
+
+  zip.file(path, xml);
+  return packageHwpx(zip);
 }
 
 // 안전관리 업무 활동 풀(30개) — 예시와 비슷한 톤/길이. 매번 랜덤 10개 사용.
