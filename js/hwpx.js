@@ -353,9 +353,63 @@ function fillEquipTitles(xml, cloner) {
   return xml;
 }
 
-// 교구 관리대장
-export function buildEquipmentLedgerHwpx(templateBuf, data) {
-  return buildPlaceholderHwpx(templateBuf, data, null, fillEquipTitles);
+// ===== 사용자 완성본(마스터) 기준 치환 유틸 =====
+// 마스터엔 자리표시자 대신 실제값(증안초/권준구/노벨엔지니어링/06.20~21/8차시)이 박혀 있어,
+// 그 값을 새 입력으로 문자열 치환한다. 서식(charPr/paraPr)은 완성본 그대로 보존.
+const M = {  // 마스터에 박힌 기준값
+  program: "(기본/초저) 노벨엔지니어링으로 만드는 안전한 등굣길",
+  school: "증안초등학교",
+  org: "대림대학교",
+  main: "권준구", assist: "원종민", safety: "이소정",
+  qty: "25",
+  d1: { m: 6, d: 20 }, d2: { m: 6, d: 21 },
+  amStart: "09:00", amEnd: "12:10", pmStart: "13:00", pmEnd: "16:10"
+};
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function replaceAllText(xml, find, repl) {
+  if (find == null || find === "" || repl == null) return xml;
+  return xml.split(find).join(repl);
+}
+// 마스터의 일차 단락(2일치)을 days 개수에 맞게 복제/삭제하고 날짜·시간 채움
+function fillMasterDays(xml, days) {
+  const period = `2026년 ${pad2(days[0].date.m)}월 ${pad2(days[0].date.d)}일 ~ ${pad2(days[days.length-1].date.m)}월 ${pad2(days[days.length-1].date.d)}일`;
+  // 연속된 (N일차) 단락 묶음을 days로 재생성
+  xml = xml.replace(/(?:<hp:p\b[^>]*>(?:(?!<\/hp:p>)[\s\S])*?<hp:t>\(\d일차\)[^<]*<\/hp:t>(?:(?!<\/hp:p>)[\s\S])*?<\/hp:p>)+/g, (block) => {
+    const one = block.match(/<hp:p\b[^>]*>(?:(?!<\/hp:p>)[\s\S])*?<\/hp:p>/)[0]
+      .replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/, "");   // 줄정보 제거(한글 재계산)
+    return days.map((d, i) =>
+      one.replace(/<hp:t>\(\d일차\)[^<]*<\/hp:t>/,
+        `<hp:t>(${i + 1}일차) ${pad2(d.date.m)}월 ${pad2(d.date.d)}일 / ${fmtTime(d.start)} ~ ${fmtTime(d.end)}</hp:t>`)
+    ).join("");
+  });
+  // 기간 문자열(2026년 06월 20일 ~ 06월 21일 [/ 시간])
+  xml = xml.replace(new RegExp(`2026년 ${pad2(M.d1.m)}월 ${pad2(M.d1.d)}일 ~ ${pad2(M.d2.m)}월 ${pad2(M.d2.d)}일`, "g"), period);
+  return xml;
+}
+
+// 교구 관리대장 — 사용자 완성본(마스터) 기준 치환
+// data: { program, school, org, mainTeacher, equipQty, days:[{date,start,end}], year }
+export async function buildEquipmentLedgerHwpx(templateBuf, data) {
+  const zip = await JSZip.loadAsync(templateBuf);
+  const path = "Contents/section0.xml";
+  let xml = await zip.file(path).async("string");
+  const days = (data.days || []).filter(d => d && d.date);
+
+  if (days.length) {
+    xml = fillMasterDays(xml, days);
+    const f = days[0].date, l = days[days.length - 1].date;
+    // 수령일시(시작일) / 제출일(마지막일)
+    xml = replaceAllText(xml, `2026.${pad2(M.d1.m)}.${pad2(M.d1.d)}`, `2026.${pad2(f.m)}.${pad2(f.d)}`);
+    xml = replaceAllText(xml, `2026. ${pad2(M.d2.m)}. ${pad2(M.d2.d)}.`, `2026. ${pad2(l.m)}. ${pad2(l.d)}.`);
+  }
+  if (data.program) xml = replaceAllText(xml, M.program, data.program);
+  if (data.school) xml = replaceAllText(xml, M.school, data.school);
+  if (data.org) xml = replaceAllText(xml, M.org, data.org);
+  if (data.mainTeacher) xml = replaceAllText(xml, M.main, data.mainTeacher);
+  if (data.equipQty) xml = replaceAllText(xml, `${M.qty}개`, `${data.equipQty}개`);
+
+  zip.file(path, xml);
+  return packageHwpx(zip);
 }
 
 // 결과보고서 '4. 프로그램 추진 의견'의 주/보조/안전 라벨 단락 뒤에 AI 의견 단락 삽입
