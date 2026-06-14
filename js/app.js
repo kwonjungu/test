@@ -660,7 +660,9 @@ async function onDownloadCase() {
       school: c.school || "",
       days: st.days || [],
       year: 2026,
-      reviews
+      reviews,
+      studentNames: c.realNames || [],          // 학생 랜덤 1명 추출용
+      teacher: st.assistantTeacher || ""         // 강사 = 보조강사(익명처리)
     });
     triggerDownload(blob, `프로그램운영사례집_${ownerTag(st.assistantTeacher)}_${safeName(c.className)}.hwpx`);
     if (i < lastClasses.length - 1) await sleep(350);

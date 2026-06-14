@@ -370,6 +370,19 @@ function replaceAllText(xml, find, repl) {
   if (find == null || find === "" || repl == null) return xml;
   return xml.split(find).join(repl);
 }
+// 이름 익명화: 가운데 글자를 O로 (3자 "홍길동"→"홍O동", 4자 "남궁민수"→"남OO수", 2자 "김수"→"김O")
+function anonName(name) {
+  const n = (name || "").trim();
+  if (n.length >= 3) return n[0] + "O".repeat(n.length - 2) + n[n.length - 1];
+  if (n.length === 2) return n[0] + "O";
+  return n;
+}
+const pickRandom = (arr) => (arr && arr.length) ? arr[Math.floor(Math.random() * arr.length)] : "";
+const _SURNAMES = ["김", "이", "박", "최", "정", "강", "조", "윤", "장", "임", "한", "오", "서", "신", "권", "황", "안", "송", "홍", "전"];
+const _GIVEN = ["민준", "서연", "도윤", "하은", "지호", "수아", "예준", "지우", "주원", "서윤", "건우", "채원", "현우", "유진", "지훈", "소율", "준서", "다은", "시우", "예린"];
+function randKoreanName() {
+  return _SURNAMES[Math.floor(Math.random() * _SURNAMES.length)] + _GIVEN[Math.floor(Math.random() * _GIVEN.length)];
+}
 // 마스터의 일차 단락(2일치)을 days 개수에 맞게 복제/삭제하고 날짜·시간 채움
 function fillMasterDays(xml, days) {
   const period = `2026년 ${pad2(days[0].date.m)}월 ${pad2(days[0].date.d)}일 ~ ${pad2(days[days.length-1].date.m)}월 ${pad2(days[days.length-1].date.d)}일`;
@@ -570,6 +583,16 @@ export async function buildCaseBookHwpx(templateBuf, data) {
       `2026년 ${pad2(f.m)}월 ${pad2(f.d)}일 ~ ${pad2(l.m)}월 ${pad2(l.d)}일`);
     if (d0) xml = replaceAllText(xml, `${fmtTime(M.amStart)} ~ ${fmtTime(M.amEnd)}`, `${fmtTime(d0.start)} ~ ${fmtTime(d0.end)}`);
   }
+
+  // 이름 처리: 학생=명단 랜덤1명, 학부모=랜덤생성, 강사=보조강사(모두 가운데 글자 익명)
+  const student = anonName(pickRandom(data.studentNames) || randKoreanName());
+  const parent = anonName(randKoreanName());
+  const teacher = anonName(data.teacher || randKoreanName());
+  xml = replaceAllText(xml, "학생 신O현, 학부모 최O수, 강사 김O정",
+    `학생 ${student}, 학부모 ${parent}, 강사 ${teacher}`);
+  xml = replaceAllText(xml, "신O현", student);
+  xml = replaceAllText(xml, "최O수", parent);
+  xml = replaceAllText(xml, "김O정", teacher);
 
   // 후기 3개(charPr 47, 학생→학부모→강사 순)를 새 AI 후기로 교체
   const reviews = data.reviews || {};
