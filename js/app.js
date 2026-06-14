@@ -295,6 +295,7 @@ function dayRowHtml(id, i, date, start, end) {
 function renderSettings(blocks) {
   const host = $("settings");
   host.innerHTML = "<h2>2.5 캠프 정보 확인·수정 <span class=\"opt\">변환 전</span></h2>";
+  let prevId = null;
   for (const blk of blocks) {
     const id = cssId(blk.sheet);
     const chasi = defaultChasi(blk.courseType);
@@ -340,6 +341,7 @@ function renderSettings(blocks) {
           <label>보조강사 <input type="text" id="assist_${id}" value="${escAttr(blk.assistantTeacher || "")}" placeholder="보조강사" style="width:90px"></label>
           <label>안전관리자 <input type="text" id="safety_${id}" value="${escAttr(blk.safetyManager || "")}" placeholder="안전관리자" style="width:90px"></label>
           <label>교구 수량 <input type="number" id="qty_${id}" placeholder="개수" style="width:64px"></label>
+          ${prevId ? `<button type="button" class="ghost copyPrev" data-cls="${id}" data-prev="${prevId}" title="위 반의 프로그램·차시·기관·주/보조/안전강사·교구를 그대로 복사">⬆ 위와 동일</button>` : ""}
         </div>
         <div class="row"><span class="muted">※ 강사별 서류(교구관리대장·주강사료·안전 지급/계약서)는 해당 담당자 이름을 입력해야 다운로드할 수 있습니다.</span></div>
         <div class="row">${dbNote}</div>
@@ -365,6 +367,16 @@ function renderSettings(blocks) {
     // 담당자 입력 변화 → 담당자 필요 버튼 게이팅 갱신
     $(`teacher_${id}`).addEventListener("input", updateGatedBtns);
     $(`safety_${id}`).addEventListener("input", updateGatedBtns);
+    // "위와 동일": 이전 반의 프로그램·차시·기관·담당자·교구 복사 (날짜·시간은 이 반 유지)
+    const cp = host.querySelector(`.copyPrev[data-cls="${id}"]`);
+    if (cp) cp.addEventListener("click", () => {
+      const p = cp.dataset.prev, c = cp.dataset.cls;
+      const copy = (pre) => { const a = $(`${pre}_${p}`), b = $(`${pre}_${c}`); if (a && b) b.value = a.value; };
+      ["prog", "tot", "org", "teacher", "assist", "safety", "qty"].forEach(copy);
+      const sa = $(`social_${p}`), sb = $(`social_${c}`); if (sa && sb) sb.checked = sa.checked;
+      updateGatedBtns();
+    });
+    prevId = id;
   }
   host.style.display = blocks.length ? "block" : "none";
 }
