@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=26";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=27";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=26";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=26";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=26";
-import { NEIS_API_KEY } from "./config.js?v=26";
+} from "./convert.js?v=27";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=27";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=27";
+import { NEIS_API_KEY } from "./config.js?v=27";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -655,6 +655,7 @@ function renderPreview(classes) {
 
   // 지역(시·도) 확인·수정 — 미확인 학교뿐 아니라 자동 인식된 학교도 모두 노출해
   // NEIS가 틀리게 잡은 지역(예: 오현초→서울)을 사용자가 직접 바로잡을 수 있게 한다.
+  const allLog = classes.flatMap(c => c.regionLog || []);
   const bySchool = {};
   for (const r of allLog) { if (!(r.school in bySchool)) bySchool[r.school] = r.sido || ""; }
   const schools = Object.keys(bySchool).filter(Boolean);
