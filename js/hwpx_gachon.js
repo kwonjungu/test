@@ -25,6 +25,13 @@ function hoursBetween(start, end) {
   if (!a || !b) return 0;
   return (+b[1] * 60 + +b[2] - (+a[1] * 60 + +a[2])) / 60;
 }
+// {m,d}에서 delta일 이동(월 경계 자동 처리). 연도 2026 고정.
+function shiftDate(o, delta) {
+  const dt = new Date(2026, o.m - 1, o.d + delta);
+  return { m: dt.getMonth() + 1, d: dt.getDate() };
+}
+// "09:00" → "09시00분"
+function hmKor(s) { return fmtTime(s).replace(":", "시") + "분"; }
 
 // 텍스트 노드 정확매칭 치환 (모든 출현)
 function replaceText(xml, oldText, newText) {
@@ -321,6 +328,80 @@ export async function buildGachonWorkHwpx(templateBuf, data) {
     xml = replaceInRun(xml, "년    월    일", () => `년  ${l.m}  월  ${l.d}  일`);
   }
   xml = fillCommonHead(xml, data);
+  zip.file(path, xml);
+  return packageHwpx(zip);
+}
+
+// ===== 3-2) 안전관리 서약서 =====
+// 자리표시자: "프로그램명을 작성해주세요", "2026년"+" 00월 00일 ~ 00월 00일 / 학교 및 기관명"(한 run),
+//             서약일 "2026. 00. 00." (시작일 전 2일). 현장안전담당 성명은 자필 서명이라 비움.
+// data: { program, school, days }
+export async function buildGachonSafetyPledgeHwpx(templateBuf, data) {
+  const { zip, path } = await loadSection(templateBuf);
+  let xml = await zip.file(path).async("string");
+  const ds = (data.days || []).filter(d => d && d.date);
+  if (data.program) xml = replaceInRun(xml, "프로그램명을 작성해주세요", (t) => t.replace("프로그램명을 작성해주세요", data.program));
+  if (ds.length) {
+    const f = ds[0].date, l = ds[ds.length - 1].date;
+    xml = replaceInRun(xml, "00월 00일 ~ 00월 00일 / 학교 및 기관명",
+      (t) => t.replace("00월 00일 ~ 00월 00일 / 학교 및 기관명",
+        `${pad2(f.m)}월 ${pad2(f.d)}일 ~ ${pad2(l.m)}월 ${pad2(l.d)}일 / ${data.school || "학교 및 기관명"}`));
+    const chk = shiftDate(f, -2);   // 서약일 = 시작일 - 2일
+    xml = replaceInRun(xml, "2026. 00. 00.", (t) => t.replace("2026. 00. 00.", `2026. ${pad2(chk.m)}. ${pad2(chk.d)}.`));
+  } else if (data.school) {
+    xml = replaceInRun(xml, "학교 및 기관명", (t) => t.replace("학교 및 기관명", data.school));
+  }
+  zip.file(path, xml);
+  return packageHwpx(zip);
+}
+
+// ===== 3-3) 안전 결과보고서 =====
+// 자리표시자: "프로그램명 작성해주세요", "2026년 00월 00일 ~ 00월 00일", "00시00분 ~ 00시 00분",
+//             운영기관 "00기관명 or 00학교명". (본문에 이름/클래스 칸 없음 — 파일명에만 표기)
+// data: { program, school, days }
+export async function buildGachonSafetyReportHwpx(templateBuf, data) {
+  const { zip, path } = await loadSection(templateBuf);
+  let xml = await zip.file(path).async("string");
+  const ds = (data.days || []).filter(d => d && d.date);
+  if (data.program) xml = replaceInRun(xml, "프로그램명 작성해주세요", (t) => t.replace("프로그램명 작성해주세요", data.program));
+  if (ds.length) {
+    const f = ds[0], l = ds[ds.length - 1];
+    xml = replaceInRun(xml, "2026년 00월 00일 ~ 00월 00일",
+      (t) => t.replace("2026년 00월 00일 ~ 00월 00일",
+        `2026년 ${pad2(f.date.m)}월 ${pad2(f.date.d)}일 ~ ${pad2(l.date.m)}월 ${pad2(l.date.d)}일`));
+    xml = replaceInRun(xml, "00시00분 ~ 00시 00분",
+      (t) => t.replace("00시00분 ~ 00시 00분", `${hmKor(f.start)} ~ ${hmKor(f.end)}`));
+  }
+  if (data.school) xml = replaceInRun(xml, "00기관명 or 00학교명", (t) => t.replace("00기관명 or 00학교명", data.school));
+  zip.file(path, xml);
+  return packageHwpx(zip);
+}
+
+// ===== 3-4) 운영 전·후 안전관리 체크리스트 =====
+// 점검일자(운영 전 4곳)=시작일-2일, 운영 후 점검일=종료일. 점검책임자/점검자=안전관리자 성명.
+// data: { name, days }
+export async function buildGachonChecklistHwpx(templateBuf, data) {
+  const { zip, path } = await loadSection(templateBuf);
+  let xml = await zip.file(path).async("string");
+  const ds = (data.days || []).filter(d => d && d.date);
+  if (ds.length) {
+    const f = ds[0].date, l = ds[ds.length - 1].date, chk = shiftDate(f, -2);
+    // 점검일자 자리표시자("2026년  월  일")는 운영 전 4곳 + 운영 후 1곳. 문서 순서상 마지막이 운영 후.
+    // 마지막 = 종료일, 나머지(운영 전) = 시작일 - 2일. (라벨이 별도 run이라 위치로 구분)
+    const re = /2026년\s+월\s+일/g;
+    const total = (xml.match(re) || []).length;
+    let idx = 0;
+    xml = xml.replace(re, () => {
+      idx++;
+      return (idx === total)
+        ? `2026년 ${l.m}월 ${l.d}일`        // 운영 후 점검일 = 종료일
+        : `2026년 ${chk.m}월 ${chk.d}일`;   // 운영 전 점검일자 = 시작일 - 2일
+    });
+  }
+  if (data.name) {
+    xml = xml.replace(/점검책임자 :\s+/g, `점검책임자 : ${xmlEsc(data.name)}  `);   // 운영 전
+    xml = xml.replace(/점검자\s*\(인\)/g, `점검자 ${xmlEsc(data.name)} (인)`);        // 운영 후
+  }
   zip.file(path, xml);
   return packageHwpx(zip);
 }

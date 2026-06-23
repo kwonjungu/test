@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=28";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=29";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=28";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=28";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=28";
-import { NEIS_API_KEY } from "./config.js?v=28";
+} from "./convert.js?v=29";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=29";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=29";
+import { NEIS_API_KEY } from "./config.js?v=29";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -66,6 +66,9 @@ let gReportTemplateBuf = null;    // 결과보고서(보조, AI 추진의견)
 let gMealTemplateBuf = null;      // 식다과 수령대장(보조)
 let gMaterialTemplateBuf = null;  // 교재교구 수령대장(보조)
 let gBannerTemplateBuf = null;    // 배너 pptx
+let gPledgeTemplateBuf = null;        // 안전관리 서약서(안전)
+let gSafetyReportTemplateBuf = null;  // 안전 결과보고서(안전)
+let gChecklistTemplateBuf = null;     // 안전 체크리스트(안전)
 let parsedBlocks = null;       // parseRoster 결과 (실명 포함)
 let lastOpinions = null;       // AI 추진의견 캐시 {주강사,보조강사,안전관리자}
 let lastReviews = null;        // AI 후기 캐시 {학생,학부모,강사}
@@ -141,6 +144,10 @@ function loadGachonTemplates(get) {
   get("식다과수령대장양식.hwpx", b => gMealTemplateBuf = b);
   get("교재교구수령대장양식.hwpx", b => gMaterialTemplateBuf = b);
   get("배너양식.pptx", b => gBannerTemplateBuf = b);
+  // 안전(현장안전관리자) — hwpx로 변환된 양식 자동 작성
+  get("안전관리서약서양식.hwpx", b => gPledgeTemplateBuf = b);
+  get("안전결과보고서양식.hwpx", b => gSafetyReportTemplateBuf = b);
+  get("안전체크리스트양식.hwpx", b => gChecklistTemplateBuf = b);
 }
 
 async function startApp() {
@@ -1136,8 +1143,13 @@ function setupGachonUI(bind) {
     <div class="dl-group">
       <h4 class="dl-h dl-h-safety">🟠 3. 현장안전관리자</h4>
       <div class="dl-grid">
-        <button id="gDlWork" class="btn-dl dl-safety" disabled><b class="idx">3-1</b>업무 보고서<small>hwpx · 안전관리자 필요 · 정산 · 캠프 1부</small></button>
+        <a class="btn-dl dl-safety" href="templates/gachon/안전관리이수증양식.hwpx" download="3-1. 안전관리 이수증 양식.hwpx"><b class="idx">3-1</b>안전관리 이수증<small>양식 다운로드 · 이수증 스캔 첨부</small></a>
+        <button id="gDlPledge" class="btn-dl dl-safety" disabled><b class="idx">3-2</b>안전관리 서약서<small>hwpx · 학교·기간·서약일 자동 · 캠프 1부</small></button>
+        <button id="gDlSafetyReport" class="btn-dl dl-safety" disabled><b class="idx">3-3</b>안전결과보고서<small>hwpx · 학교·기간 자동 · 클래스별</small></button>
+        <button id="gDlSafetyChecklist" class="btn-dl dl-safety" disabled><b class="idx">3-4</b>안전 체크리스트<small>hwpx · 점검일자·책임자 자동 · 클래스별</small></button>
+        <button id="gDlWork" class="btn-dl dl-safety" disabled><b class="idx">3-5</b>업무 보고서<small>hwpx · 안전관리자 필요 · 정산 · 캠프 1부</small></button>
       </div>
+      <p class="hint" style="margin-top:8px">※ 3-1 이수증은 본인이 보유한 이수증 스캔본을 양식에 붙여 제출하세요(자동 작성 대상 아님).</p>
     </div>`;
 
   // 사전제출 안내 카드 (강사지원서·출강확인서) — 다운로드 영역 위에 삽입
@@ -1166,6 +1178,9 @@ function setupGachonUI(bind) {
   bind("gDlMeal", "click", onGachonMeal);
   bind("gDlMaterial", "click", onGachonMaterial);
   bind("gDlLectureAssist", "click", () => onGachonLecture("보조강사"));
+  bind("gDlPledge", "click", onGachonSafetyPledge);
+  bind("gDlSafetyReport", "click", onGachonSafetyReport);
+  bind("gDlSafetyChecklist", "click", onGachonChecklist);
   bind("gDlWork", "click", onGachonWork);
 }
 
@@ -1187,6 +1202,9 @@ function refreshGachonButtons(total) {
   set("gDlMeal", !(ready && gMealTemplateBuf));
   set("gDlMaterial", !(ready && gMaterialTemplateBuf));
   set("gDlLectureAssist", !(ready && gLectureTemplateBuf && hasAssist));
+  set("gDlPledge", !(ready && gPledgeTemplateBuf));
+  set("gDlSafetyReport", !(ready && gSafetyReportTemplateBuf));
+  set("gDlSafetyChecklist", !(ready && gChecklistTemplateBuf));   // 점검책임자는 다운로드 시 prompt로 확보
   set("gDlWork", !(ready && gWorkTemplateBuf && hasSafety));
 }
 
@@ -1315,6 +1333,43 @@ async function onGachonWork() {
     name: nm, days: (st0.days || []), totalAmount: total.toLocaleString(), rounds, calcLine
   });
   triggerDownload(blob, `업무보고서_${ownerTag(nm)}.hwpx`);
+}
+
+// 3-2) 안전관리 서약서 (안전) — 캠프 1부, 프로그램·기간·학교·서약일(시작-2) 자동
+async function onGachonSafetyPledge() {
+  if (!lastClasses || !lastClasses.length || !gPledgeTemplateBuf) return;
+  const c0 = lastClasses[0], st0 = c0.settings || {};
+  const blob = await buildGachonSafetyPledgeHwpx(gPledgeTemplateBuf, {
+    program: st0.program || c0.program || "", school: c0.school || "", days: st0.days || []
+  });
+  triggerDownload(blob, `안전관리서약서_${safeName(c0.school || "")}.hwpx`);
+}
+
+// 3-3) 안전 결과보고서 (안전) — 클래스별, 프로그램·운영기간(날짜+시간)·학교 자동
+async function onGachonSafetyReport() {
+  if (!lastClasses || !lastClasses.length || !gSafetyReportTemplateBuf) return;
+  for (let i = 0; i < lastClasses.length; i++) {
+    const c = lastClasses[i], st = c.settings || {};
+    const blob = await buildGachonSafetyReportHwpx(gSafetyReportTemplateBuf, {
+      program: st.program || c.program || "", school: c.school || "", days: st.days || []
+    });
+    triggerDownload(blob, `안전결과보고서_${safeName(c.school || "")}_${safeName(c.className)}.hwpx`);
+    if (i < lastClasses.length - 1) await sleep(350);
+  }
+}
+
+// 3-4) 운영 전·후 안전 체크리스트 (안전) — 클래스별, 점검일자(운영전 시작-2/운영후 종료일)·점검책임자 자동
+async function onGachonChecklist() {
+  if (!lastClasses || !lastClasses.length || !gChecklistTemplateBuf) return;
+  if (ensureSafetyManager() === null) return;   // 점검책임자(안전관리자) 성명 확보
+  for (let i = 0; i < lastClasses.length; i++) {
+    const c = lastClasses[i], st = c.settings || {};
+    const blob = await buildGachonChecklistHwpx(gChecklistTemplateBuf, {
+      name: st.safetyManager || "", days: st.days || []
+    });
+    triggerDownload(blob, `안전체크리스트_${safeName(c.school || "")}_${safeName(c.className)}.hwpx`);
+    if (i < lastClasses.length - 1) await sleep(350);
+  }
 }
 
 // 7) 캠프 배너 (pptx) — 학교명·일시 자동
