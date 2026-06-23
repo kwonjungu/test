@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=25";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=26";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=25";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=25";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=25";
-import { NEIS_API_KEY } from "./config.js?v=25";
+} from "./convert.js?v=26";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=26";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=26";
+import { NEIS_API_KEY } from "./config.js?v=26";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -97,6 +97,12 @@ function applyOrgChrome() {
     b.onclick = () => location.reload();
     h.appendChild(b);
   }
+  // 기관별로 '표준 양식'·'작성 예시' 다운로드 링크를 교체 (대림대/가천대 양식·프로그램 목록이 다름)
+  const exBase = (ORG === "가천대학교") ? "examples/gachon/" : "examples/";
+  const tl = $("rosterTemplateLink");
+  if (tl) tl.href = profile().tplBase + "캠프명단양식.xlsx";
+  const sl = $("rosterSampleLink");
+  if (sl) sl.href = exBase + "예시_백암초_캠프명단.xlsx";
 }
 
 // 기관별 템플릿 백그라운드 로드
