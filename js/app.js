@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=23";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=24";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=23";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=23";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=23";
-import { NEIS_API_KEY } from "./config.js?v=23";
+} from "./convert.js?v=24";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=24";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=24";
+import { NEIS_API_KEY } from "./config.js?v=24";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -337,13 +337,46 @@ function setStatus(id, msg, cls = "") {
   el.textContent = msg; el.className = "status " + cls;
 }
 
+// 한컴오피스 한셀(HCell)은 sharedStrings에 전용 서식 태그(<hs:size> 등, schemas.haansoft.com)를
+// 넣는데, SheetJS가 이를 "Unrecognized rich format"으로 보고 파싱을 중단해 시트가 비어버린다.
+// 업로드 직후 그 태그만 제거해 표준 .xlsx로 정규화한다. (한셀 흔적 없으면 원본 그대로 반환)
+async function normalizeHcellXlsx(buf) {
+  try {
+    const zip = await JSZip.loadAsync(buf);
+    const ss = zip.file("xl/sharedStrings.xml");
+    if (!ss) return buf;
+    const xml = await ss.async("string");
+    if (xml.indexOf("<hs:") < 0) return buf;        // 한셀 전용 태그 없음 → 손대지 않음
+    const cleaned = xml.replace(/<hs:[^>]*\/>/g, "")
+                       .replace(/<hs:[^>]*>/g, "")
+                       .replace(/<\/hs:[^>]*>/g, "");
+    zip.file("xl/sharedStrings.xml", cleaned);
+    return await zip.generateAsync({ type: "arraybuffer" });
+  } catch (_) {
+    return buf;   // 정규화 실패 시 원본으로 시도(원래 동작 보존)
+  }
+}
+
 // 명단 업로드 → 즉시 파싱 → 편집 가능한 설정 패널 표시
 async function onRoster(e) {
   const f = e.target.files[0]; if (!f) return;
-  rosterBuf = await f.arrayBuffer();
+  setStatus("rosterStatus", "명단 읽는 중…", "");
+  rosterBuf = await normalizeHcellXlsx(await f.arrayBuffer());   // 한셀(HCell) 호환 정규화
   rosterName = f.name.replace(/\.xlsx$/i, "");
-  const wb = XLSX.read(rosterBuf, { type: "array" });
+  let wb;
+  try {
+    wb = XLSX.read(rosterBuf, { type: "array" });
+  } catch (err) {
+    setStatus("rosterStatus",
+      `명단을 읽지 못했습니다(${err.message}). 한셀로 저장된 파일이면 Excel/구글시트에서 .xlsx로 다시 저장해 올려주세요.`, "warn");
+    return;
+  }
   parsedBlocks = parseRoster(wb).filter(b => b.students.length);
+  if (!parsedBlocks.length) {
+    setStatus("rosterStatus",
+      "학생을 찾지 못했습니다. 시트(오전반/오후반)와 '이름·전화' 헤더가 있는 표준 양식인지 확인하세요.", "warn");
+    return;
+  }
   setStatus("rosterStatus",
     `명단 로드됨: ${f.name} — 클래스 ${parsedBlocks.length}개`, "ok");
   renderSettings(parsedBlocks);
@@ -404,6 +437,9 @@ function renderSettings(blocks) {
       <div class="clsbox" data-cls="${id}" data-sheet="${escAttr(blk.sheet)}">
         <div class="clshead"><b>${escHtml(blk.sheet)}</b>
           <span class="muted">${escHtml(blk.school)} · ${blk.students.length}명</span></div>
+        <div class="row">
+          <label>학교명(서류 표기) <input type="text" id="school_${id}" value="${escAttr(blk.school || "")}" placeholder="○○초등학교" style="width:200px"></label>
+        </div>
         <div class="row">
           <label>프로그램명
             <select class="progSel" id="prog_${id}" style="max-width:380px">
@@ -533,9 +569,11 @@ function readSettings() {
       start: row.querySelector(".dStart").value,
       end: row.querySelector(".dEnd").value
     })).filter(d => d.date);
+    const schoolEl = $(`school_${id}`);
     map[sheet] = {
       social: $(`social_${id}`).checked,
       chasi: parseInt($(`tot_${id}`).value, 10) || 8,
+      school: schoolEl ? schoolEl.value.trim() : "",
       program: $(`prog_${id}`).value,
       org: $(`org_${id}`).value,
       mainTeacher: $(`teacher_${id}`).value.trim(),
@@ -569,7 +607,9 @@ async function onConvert() {
   for (const c of lastClasses) {
     const blk = parsedBlocks.find(b => b.sheet === c.className);
     c.settings = settings[c.className] || {};
-    c.school = blk ? blk.school : c.school;
+    // 학교명: 설정 패널 입력값 우선 → 명단 메타(교육 장소) → 기존값.
+    // (비어 있으면 서류의 마스터 기본값 '증안초등학교'가 그대로 남으므로 반드시 채운다)
+    c.school = (c.settings.school || (blk ? blk.school : "") || c.school || "").trim();
     c.realNames = blk ? blk.students.map(s => s.name) : [];
   }
 
@@ -609,22 +649,34 @@ function renderPreview(classes) {
     .map(c => `<b>${escHtml(c.className)}</b>: ${escHtml(c.school)} / ${escHtml(c.program)} (${c.rows.length}명)`)
     .join("<br>");
 
-  const allLog = classes.flatMap(c => c.regionLog);
-  const unresolved = [...new Set(allLog.filter(r => !r.sido).map(r => r.school))];
-  if (unresolved.length) {
-    // 명단의 실제 학교명에 직접 시·도를 지정 → 즉시 적용
-    let h = `⚠ 지역 미확인 학교 — 시·도를 지정하면 바로 반영됩니다:`;
-    unresolved.forEach((sc, idx) => {
-      const opts = SIDO_LIST.map(s => `<option>${s}</option>`).join("");
+  // 지역(시·도) 확인·수정 — 미확인 학교뿐 아니라 자동 인식된 학교도 모두 노출해
+  // NEIS가 틀리게 잡은 지역(예: 오현초→서울)을 사용자가 직접 바로잡을 수 있게 한다.
+  const bySchool = {};
+  for (const r of allLog) { if (!(r.school in bySchool)) bySchool[r.school] = r.sido || ""; }
+  const schools = Object.keys(bySchool).filter(Boolean);
+  if (schools.length) {
+    const anyUnresolved = schools.some(sc => !bySchool[sc]);
+    let h = anyUnresolved
+      ? `⚠ 지역(시·도) 확인 — 미확인 학교는 반드시 선택하고, 자동 인식이 틀렸으면 바꾼 뒤 [적용]을 누르세요:`
+      : `지역(시·도) 확인 — 자동 인식이 틀렸으면 바꾼 뒤 [적용]을 누르세요:`;
+    schools.forEach((sc) => {
+      const cur = bySchool[sc];
+      const opts = `<option value="">— 선택 —</option>` +
+        SIDO_LIST.map(s => `<option${s === cur ? " selected" : ""}>${s}</option>`).join("");
       h += `<div class="row" style="margin-top:4px">
-        <b>${escHtml(sc)}</b>
-        <select class="fixSido" data-school="${escAttr(sc)}"><option value="">— 선택 —</option>${opts}</select></div>`;
+        <b${cur ? "" : ' style="color:#c00"'}>${escHtml(sc)}</b>
+        <select class="fixSido" data-school="${escAttr(sc)}" data-cur="${escAttr(cur)}">${opts}</select>
+        <span class="muted">${cur ? `현재: ${escHtml(cur)}` : "미인식 — 선택 필요"}</span></div>`;
     });
     h += `<button id="applyFix" style="margin-top:6px">선택한 지역 적용</button>`;
     $("warn").innerHTML = h;
     $("applyFix").onclick = () => {
       document.querySelectorAll(".fixSido").forEach(sel => {
-        if (sel.value) resolver.learn(sel.dataset.school, sel.value);  // 실제 학교명에 매핑
+        const v = sel.value, cur = sel.dataset.cur || "";
+        if (v && v !== cur) {
+          resolver.learn(sel.dataset.school, v);              // map 최우선 → 재변환 시 반영
+          if (resolver.cache) delete resolver.cache[sel.dataset.school];  // NEIS 캐시 무효화
+        }
       });
       onConvert();   // 재변환 → 적용
     };

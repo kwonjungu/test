@@ -260,6 +260,15 @@ export function parseRoster(workbook) {
       });
     }
 
+    // 교육 장소(메타)가 비어 있으면 학생 '학교' 열의 최빈값으로 보완.
+    // (서류 빌더는 school이 비면 마스터 기본값 '증안초등학교'를 그대로 남기므로 반드시 채운다)
+    let blockSchool = school;
+    if (!blockSchool) {
+      const freq = {};
+      for (const s of students) { const k = (s.school || "").trim(); if (k) freq[k] = (freq[k] || 0) + 1; }
+      blockSchool = Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0] || "";
+    }
+
     // 신청 교사(주강사/보조강사/안전관리) 추출
     const teachers = parseTeachers(rows);
     const byRole = re => (teachers.find(t => re.test(t.role)) || {}).name || "";
@@ -269,7 +278,7 @@ export function parseRoster(workbook) {
 
     result.push({
       sheet: sheetName,
-      school: school,
+      school: blockSchool,
       program: program,
       courseType: courseTypeFromProgram(program),    // 기본/특화/AI특화
       courseLevel: courseLevelFromProgram(program),   // 초저/초고/중등...
