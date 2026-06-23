@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=27";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=28";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=27";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=27";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=27";
-import { NEIS_API_KEY } from "./config.js?v=27";
+} from "./convert.js?v=28";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=28";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=28";
+import { NEIS_API_KEY } from "./config.js?v=28";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -1136,13 +1136,8 @@ function setupGachonUI(bind) {
     <div class="dl-group">
       <h4 class="dl-h dl-h-safety">🟠 3. 현장안전관리자</h4>
       <div class="dl-grid">
-        <a class="btn-dl dl-safety" href="templates/gachon/안전관리이수증양식.hwpx" download="3-1. 안전관리 이수증 양식.hwpx"><b class="idx">3-1</b>안전관리 이수증<small>빈 양식 · 직접 작성</small></a>
-        <a class="btn-dl dl-safety" href="templates/gachon/안전관리서약서양식.hwpx" download="3-2. 안전관리 서약서 양식.hwpx"><b class="idx">3-2</b>안전관리 서약서<small>빈 양식 · 직접 작성</small></a>
-        <a class="btn-dl dl-safety" href="templates/gachon/안전결과보고서양식.hwpx" download="3-3. 안전결과보고서 양식.hwpx"><b class="idx">3-3</b>안전결과보고서<small>빈 양식 · 직접 작성</small></a>
-        <a class="btn-dl dl-safety" href="templates/gachon/안전체크리스트양식.hwpx" download="3-4. 운영 전후 안전 체크리스트 양식.hwpx"><b class="idx">3-4</b>안전 체크리스트<small>빈 양식 · 직접 작성</small></a>
-        <button id="gDlWork" class="btn-dl dl-safety" disabled><b class="idx">3-5</b>업무 보고서<small>hwpx · 안전관리자 필요 · 정산 · 캠프 1부</small></button>
+        <button id="gDlWork" class="btn-dl dl-safety" disabled><b class="idx">3-1</b>업무 보고서<small>hwpx · 안전관리자 필요 · 정산 · 캠프 1부</small></button>
       </div>
-      <p class="hint" style="margin-top:8px">※ 3-1~3-4는 한글 <b>구버전(.hwp)</b> 양식이라 현재 빈 양식만 제공됩니다(자동 작성 불가). <b>.hwpx로 변환</b>해 주시면 학교·기간·안전관리자 자동 작성을 추가할 수 있습니다.</p>
     </div>`;
 
   // 사전제출 안내 카드 (강사지원서·출강확인서) — 다운로드 영역 위에 삽입
@@ -1312,7 +1307,9 @@ async function onGachonWork() {
   const c0 = lastClasses[0], st0 = c0.settings || {};
   const { total } = calcSafetyPay();
   const rounds = lastClasses.reduce((n, c) => n + ((c.settings || {}).days || []).filter(d => d.date).length, 0);
-  const calcLine = `20,000원 X 시간 (반별 1일 한도 60,000원 적용) = ${total.toLocaleString()}원`;
+  const hours = total / SAFE_UNIT;                                 // 한도 적용 후 환산 시간(차시)
+  const hoursTxt = Number.isInteger(hours) ? hours : hours.toFixed(1);
+  const calcLine = `20,000원 X ${hoursTxt}시간 (반별 1일 한도 60,000원 적용) = ${total.toLocaleString()}원`;
   const blob = await buildGachonWorkHwpx(gWorkTemplateBuf, {
     program: st0.program || c0.program || "", school: c0.school || "",
     name: nm, days: (st0.days || []), totalAmount: total.toLocaleString(), rounds, calcLine

@@ -382,6 +382,11 @@ function replaceAllText(xml, find, repl) {
   if (find == null || find === "" || repl == null) return xml;
   return xml.split(find).join(repl);
 }
+// {m,d}에서 delta일 이동(월 경계 자동 처리). 연도 2026 고정.
+function shiftDate(o, delta) {
+  const dt = new Date(2026, o.m - 1, o.d + delta);
+  return { m: dt.getMonth() + 1, d: dt.getDate() };
+}
 // 이름 익명화: 가운데 글자를 O로 (3자 "홍길동"→"홍O동", 4자 "남궁민수"→"남OO수", 2자 "김수"→"김O")
 function anonName(name) {
   const n = (name || "").trim();
@@ -648,8 +653,16 @@ export function buildSafetyLogHwpx(templateBuf, data) {
 // 박힌값: 캠프명(program)/일시·장소("2026년 6월 20일 ~ 2026년 6월 21일 / 증안초등학교")
 //        /현장안전담당(이소정 2곳)/서약일("2026. 06. 20.")
 // 운영기관 산학협력단·PM 이양창·안전관리자 최지수는 고정 유지(치환 안 함)
+// 서약일은 시작일 전 2일로 자동 설정(운영 전 서약).
 export async function buildSafetyPledgeHwpx(templateBuf, data) {
-  return buildFromMaster(templateBuf, data);
+  const days = (data.days || []).filter(d => d && d.date);
+  return buildFromMaster(templateBuf, data, (xml) => {
+    if (!days.length) return xml;
+    const f = days[0].date;            // applyMaster가 이미 6/20→시작일(f)로 치환함
+    const chk = shiftDate(f, -2);      // 서약일 = 시작일 - 2일
+    // 서약일(점 형식 "2026. MM. DD.")만 시작-2일로. 일시·장소의 기간(년월일 범위)은 그대로 유지.
+    return replaceAllText(xml, `2026. ${pad2(f.m)}. ${pad2(f.d)}.`, `2026. ${pad2(chk.m)}. ${pad2(chk.d)}.`);
+  });
 }
 
 // 프로그램 운영 사례집 — 사용자 완성본(마스터) 기준
@@ -853,8 +866,16 @@ export async function buildSafetyContractHwpx(templateBuf, data) {
 
 // 운영 전후 안전관리 체크리스트 — 사용자 완성본(마스터) 기준
 // 박힌값: "점검일자: 2026년 6월 20일 ... 이소정"(운영전 시작일), "날짜: 2026년 6월 21일 ... 이소정"(운영후 종료일)
+// 운영 전 점검일자는 시작일 전 2일로 자동 설정. 운영 후(종료일) 점검일은 그대로 유지.
 export async function buildChecklistHwpx(templateBuf, data) {
-  return buildFromMaster(templateBuf, data);   // safety(이소정)·날짜(시작/종료) 치환
+  const days = (data.days || []).filter(d => d && d.date);
+  return buildFromMaster(templateBuf, data, (xml) => {   // safety(이소정)·날짜(시작/종료) 치환
+    if (!days.length) return xml;
+    const f = days[0].date;            // applyMaster가 이미 6/20→시작일(f)로 치환함
+    const chk = shiftDate(f, -2);      // 운영 전 점검일자 = 시작일 - 2일
+    // 운영 전 점검일자(=시작일 문자열)만 시작-2일로. 운영 후 날짜(종료일)는 건드리지 않음.
+    return replaceAllText(xml, `2026년 ${f.m}월 ${f.d}일`, `2026년 ${chk.m}월 ${chk.d}일`);
+  });
 }
 
 // 다문화학생 학교장 확인서 — 클래스별, 다문화 학생 명단·학교명·인원·날짜 채움
