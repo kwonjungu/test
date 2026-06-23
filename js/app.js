@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=24";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=25";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=24";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=24";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=24";
-import { NEIS_API_KEY } from "./config.js?v=24";
+} from "./convert.js?v=25";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=25";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner } from "./hwpx_gachon.js?v=25";
+import { NEIS_API_KEY } from "./config.js?v=25";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -438,9 +438,6 @@ function renderSettings(blocks) {
         <div class="clshead"><b>${escHtml(blk.sheet)}</b>
           <span class="muted">${escHtml(blk.school)} · ${blk.students.length}명</span></div>
         <div class="row">
-          <label>학교명(서류 표기) <input type="text" id="school_${id}" value="${escAttr(blk.school || "")}" placeholder="○○초등학교" style="width:200px"></label>
-        </div>
-        <div class="row">
           <label>프로그램명
             <select class="progSel" id="prog_${id}" style="max-width:380px">
               <option value="">— 선택 —</option>${progOpts}
@@ -569,11 +566,9 @@ function readSettings() {
       start: row.querySelector(".dStart").value,
       end: row.querySelector(".dEnd").value
     })).filter(d => d.date);
-    const schoolEl = $(`school_${id}`);
     map[sheet] = {
       social: $(`social_${id}`).checked,
       chasi: parseInt($(`tot_${id}`).value, 10) || 8,
-      school: schoolEl ? schoolEl.value.trim() : "",
       program: $(`prog_${id}`).value,
       org: $(`org_${id}`).value,
       mainTeacher: $(`teacher_${id}`).value.trim(),
@@ -602,14 +597,17 @@ async function onConvert() {
   const socialByClass = {};
   for (const k in settings) socialByClass[k] = settings[k].social;
 
+  // 사용자가 '2. 학교 검색'에 직접 입력한 학교명은 명단 시트보다 우선한다.
+  const userSchool = (($("schoolSearch") && $("schoolSearch").value) || "").trim();
+
   lastClasses = await toRegistrationRows(parsedBlocks, resolver, { socialByClass });
   // 설정(차시/날짜/시간/기관/주강사/교구수량)·학교·실명을 클래스 결과에 부착
   for (const c of lastClasses) {
     const blk = parsedBlocks.find(b => b.sheet === c.className);
     c.settings = settings[c.className] || {};
-    // 학교명: 설정 패널 입력값 우선 → 명단 메타(교육 장소) → 기존값.
+    // 학교명 우선순위: 사용자 입력(2번 학교 검색) → 명단 메타(교육 장소) → 학생 학교 폴백 → 기존값.
     // (비어 있으면 서류의 마스터 기본값 '증안초등학교'가 그대로 남으므로 반드시 채운다)
-    c.school = (c.settings.school || (blk ? blk.school : "") || c.school || "").trim();
+    c.school = (userSchool || (blk ? blk.school : "") || c.school || "").trim();
     c.realNames = blk ? blk.students.map(s => s.name) : [];
   }
 
