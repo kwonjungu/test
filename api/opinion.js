@@ -1,13 +1,21 @@
 // POST /api/opinion { program, school, kind, who }  (구버전 호환: { role } → 추진의견)
 //   kind: "추진의견" | "후기"  /  who: 주강사·보조강사·안전관리자 | 학생·학부모·강사
-// Gemini(가성비 Flash)로 자연스러운 한국어 본문 생성.
+// 1순위: 로컬 문구 은행(opinion-bank) — API 호출 0. 은행에 없으면 경량 Gemini 폴백.
 // 하네스: 모델 폴백 체인 + 타임아웃 + 응답 검증 + 마크다운/AI어투 후처리.
-// 환경변수: GEMINI_API_KEY(필수), GEMINI_MODEL(선택, 우선 시도)
+// 환경변수: GEMINI_API_KEY(폴백용, 선택). GEMINI_MODEL 은 2.5 flash 계열만 허용.
 
 const { programContext } = require("./program-context");
+const { localOpinion } = require("./opinion-bank");
 
-// 단종 대비 폴백 순서 (공식 안정 모델 → 별칭). 앞에서부터 시도.
-const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"];
+// 🔒 비용 하드캡: 최경량 2.5-flash-lite 만 기본. flash 는 라이트 실패 시 폴백.
+// (2026-07 사건: GEMINI_MODEL 로 3.1 Pro 가 주입돼 폭주 → 아래 화이트리스트로 차단)
+const DEFAULT_MODELS = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
+
+// 허용 모델: 2.5 flash 계열만. 그 외(3.x·pro 등)는 무시 → 절대 호출 안 됨.
+const MODEL_ALLOW = /^gemini-2\.5-flash(-lite)?$/;
+function allowedModel(m) {
+  return typeof m === "string" && MODEL_ALLOW.test(m.trim());
+}
 
 function buildPrompt({ program, school, kind, who }) {
   const ctx = programContext(program);
@@ -111,12 +119,19 @@ module.exports = async (req, res) => {
       kind: body.kind || "추진의견",
       who: body.who || body.role || "주강사"
     };
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) return res.status(500).json({ error: "GEMINI_API_KEY 미설정 (Vercel 환경변수)" });
 
-    // 모델 폴백 체인 (중복 제거)
+    // ① 1순위: 로컬 문구 은행 (API 호출 0 — 대부분 여기서 해결). 매번 다른 변형본.
+    const local = localOpinion(data.program, data.kind, data.who);
+    if (local) return res.status(200).json({ text: local, model: "local-bank" });
+
+    // ② 폴백: 은행에 없는 프로그램/조합만 경량 Gemini 로.
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return res.status(500).json({ error: "이 프로그램은 준비된 문구가 없고 GEMINI_API_KEY 도 없습니다" });
+
+    // 모델 폴백 체인 — GEMINI_MODEL 은 화이트리스트 통과분만 (3.x/pro 차단)
     const models = [];
-    for (const m of [process.env.GEMINI_MODEL, ...DEFAULT_MODELS]) {
+    const envModel = process.env.GEMINI_MODEL;
+    for (const m of [allowedModel(envModel) ? envModel : null, ...DEFAULT_MODELS]) {
       if (m && !models.includes(m)) models.push(m);
     }
 
