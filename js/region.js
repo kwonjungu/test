@@ -49,16 +49,23 @@ export class RegionResolver {
     }
   }
 
-  // 원DB에서 학교+프로그램으로 차시별 일정(일시) 조회 → 일시 문자열 반환
-  findScheduleRaw(school, programCore) {
+  // 원DB에서 학교+프로그램+반(오전/오후)으로 차시별 일정(일시) 조회 → 일시 문자열 반환
+  // ampm: "am"|"pm" — 해당 반 인원이 있는 레코드 우선, 반 정보가 없는 레코드는 허용,
+  // 반대 반 전용 레코드는 제외(오전반 전용 일정이 오후반에 적용되는 것을 방지)
+  findScheduleRaw(school, programCore, ampm = "am") {
     const ns = (school || "").replace(/\(저조지역\)/g, "").replace(/\s+/g, "");
-    const rec = this.programClasses.find(r => {
+    const cands = this.programClasses.filter(r => {
       const rs = (r["학교명"] || "").replace(/\(저조지역\)/g, "").replace(/\s+/g, "");
       if (rs !== ns) return false;
       if (!programCore) return true;
       const rp = (r["프로그램명"] || "").replace(/\([^)]*\)/g, "").replace(/\s+/g, "");
       return rp.includes(programCore) || programCore.includes(rp);
     });
+    const wantKey = ampm === "pm" ? "오후반(명)" : "오전반(명)";
+    const otherKey = ampm === "pm" ? "오전반(명)" : "오후반(명)";
+    const has = (r, k) => parseFloat(r[k]) > 0;
+    const rec = cands.find(r => has(r, wantKey))
+      || cands.find(r => !(wantKey in r) && !(otherKey in r));
     return rec ? (rec["일시"] || "") : "";
   }
 

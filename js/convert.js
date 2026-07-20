@@ -118,28 +118,63 @@ export function fmtDate(o) {
 }
 
 // 원DB '일시' 문자열 → [{date:{m,d}, start:"HH:MM", end:"HH:MM"}]
-// ampm: "am"(오전반) | "pm"(오후반) — 시간 슬롯이 2개면 오후반은 두 번째 사용
+// ampm: "am"(오전반) | "pm"(오후반)
+// 시간 슬롯은 등장 위치 기준으로 "직전에 나온 날짜 묶음"에 귀속시킨다.
+//  - "D1~D2 09:00~12:10 D1~D2 13:00~16:10" → 각 날짜에 슬롯 2개 → 오전반=이른 시각, 오후반=늦은 시각
+//  - "D1 09:00~12:10 D2 09:00~12:10"       → 날짜별 슬롯 1개(날짜마다 다를 수 있음) → 그대로 사용
+//  - 오후반인데 배정된 시각이 12:00 이전뿐이면(오전 시각) 시간은 비워서 기본 오후 시간이 적용되게 한다.
 export function parseSchedule(ilsi, ampm = "am") {
   const s = (ilsi || "").toString();
   if (!s) return [];
-  // 날짜 토큰: "M월 D일" 우선, 없으면 "M.D"
-  let dates = [];
+  // 날짜·시간 토큰을 등장 위치와 함께 수집 (날짜: "M월 D일" 우선, 없으면 "M.D")
+  const tokens = [];
   let m;
   const re1 = /(\d{1,2})\s*월\s*(\d{1,2})\s*일/g;
-  while ((m = re1.exec(s))) dates.push({ m: +m[1], d: +m[2] });
-  if (!dates.length) {
-    const re2 = /(\d{1,2})\.(\d{1,2})/g;
-    while ((m = re2.exec(s))) dates.push({ m: +m[1], d: +m[2] });
+  while ((m = re1.exec(s))) tokens.push({ i: m.index, date: { m: +m[1], d: +m[2] } });
+  if (!tokens.length) {
+    const re2 = /(\d{1,2})\.(\d{1,2})(?!\d)/g;
+    while ((m = re2.exec(s))) tokens.push({ i: m.index, date: { m: +m[1], d: +m[2] } });
   }
-  // 중복 제거 + 정렬
-  const seen = new Set(), uniq = [];
-  for (const d of dates) { const k = d.m * 100 + d.d; if (!seen.has(k)) { seen.add(k); uniq.push(d); } }
-  uniq.sort((a, b) => a.m - b.m || a.d - b.d);
-  // 시간 슬롯
-  const times = [...s.matchAll(/(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})/g)].map(x => [x[1], x[2]]);
-  const slot = (ampm === "pm" && times.length >= 2) ? times[1] : (times[0] || ["", ""]);
+  const reT = /(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})/g;
+  while ((m = reT.exec(s))) tokens.push({ i: m.index, time: [m[1], m[2]] });
+  tokens.sort((a, b) => a.i - b.i);
+
   const fix = t => t ? t.replace(/^(\d):/, "0$1:") : "";   // "9:00" -> "09:00"
-  return uniq.map(d => ({ date: d, start: fix(slot[0]), end: fix(slot[1]) }));
+  // 날짜별 슬롯 수집: 시간 토큰은 직전 날짜 묶음에 귀속, 날짜 없이 이어지는 시간은 같은 묶음의 추가 슬롯
+  const byDate = new Map();   // m*100+d -> { date, slots: [[start,end], ...] }
+  const addSlot = (dates, t) => {
+    for (const d of dates) {
+      const k = d.m * 100 + d.d;
+      if (!byDate.has(k)) byDate.set(k, { date: d, slots: [] });
+      if (!t) continue;
+      const slot = [fix(t[0]), fix(t[1])];
+      const e = byDate.get(k);
+      if (!e.slots.some(x => x[0] === slot[0] && x[1] === slot[1])) e.slots.push(slot);
+    }
+  };
+  let curDates = [], prevDates = [];
+  for (const tk of tokens) {
+    if (tk.date) { curDates.push(tk.date); continue; }
+    addSlot(curDates.length ? curDates : prevDates, tk.time);
+    if (curDates.length) prevDates = curDates;
+    curDates = [];
+  }
+  if (curDates.length) addSlot(curDates, null);   // 시간 없이 끝난 날짜도 유지
+
+  const mins = t => { const [h, mm] = t.split(":").map(Number); return h * 60 + mm; };
+  return [...byDate.values()]
+    .sort((a, b) => a.date.m - b.date.m || a.date.d - b.date.d)
+    .map(e => {
+      let slot = ["", ""];
+      if (e.slots.length === 1) slot = e.slots[0];
+      else if (e.slots.length > 1) {
+        const sorted = [...e.slots].sort((a, b) => mins(a[0]) - mins(b[0]));
+        slot = ampm === "pm" ? sorted[sorted.length - 1] : sorted[0];
+      }
+      // 오후반 보호: 오전 시각(12:00 이전 시작)만 있으면 비워서 기본 오후 시간으로
+      if (ampm === "pm" && slot[0] && mins(slot[0]) < 12 * 60) slot = ["", ""];
+      return { date: e.date, start: slot[0], end: slot[1] };
+    });
 }
 
 // 프로그램명 핵심부 (모든 괄호(과정/급·차시·(多) 등)·공백 제거 — finder와 동일 규칙)

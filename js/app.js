@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=29";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=30";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=29";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=29";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=29";
-import { NEIS_API_KEY } from "./config.js?v=29";
+} from "./convert.js?v=30";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=30";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=30";
+import { NEIS_API_KEY } from "./config.js?v=30";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -429,9 +429,9 @@ function renderSettings(blocks) {
     const defStart = isAfternoon ? "13:00" : "09:00";
     const defEnd = isAfternoon ? "16:10" : "12:10";
     // ① 원DB에 학교+프로그램 일정이 있으면 날짜·시간 자동 채움 ② 없으면 명단 날짜+기본시간
+    const ampm = isAfternoon ? "pm" : "am";
     const sched = parseSchedule(
-      resolver.findScheduleRaw(blk.school, programCore(blk.program)),
-      isAfternoon ? "pm" : "am");
+      resolver.findScheduleRaw(blk.school, programCore(blk.program), ampm), ampm);
     let dayRows, dbNote = "";
     if (sched.length) {
       dayRows = sched.map((s, i) =>
