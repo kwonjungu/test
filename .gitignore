@@ -2,3 +2,5 @@ node_modules/
 .vercel
 *-serviceaccount*.json
 .env*
+tools/out/
+samples/

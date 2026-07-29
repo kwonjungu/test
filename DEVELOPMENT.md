@@ -121,6 +121,8 @@ hwpx는 **zip(OCF) + XML** 패키지. 본문은 `Contents/section0.xml`, 서식�
 - **문서 보안 낮음에서만 열림** → 완성본에 포함된 빈 한글 스크립트(`Scripts/*.js`)가 "스크립트 포함 문서"로 분류됨. `packageHwpx`에서 `Scripts/*` 삭제 + `content.hpf`의 item·spine 참조 제거
 - **결과보고서 추진의견 한 줄 겹침** → 빈 칸 paraPr의 고정 줄정보(linesegarray) 때문. 왼쪽정렬·줄간격160 paraPr로 교체 + linesegarray 제거
 - **.hwp 교안 텍스트 추출** → 이미지 PDF라 OCR 불가, `.hwp`는 `olefile`로 PrvText 스트림 추출
+- **3일 이상 캠프 결과보고서 "손상된 파일"** → `expandMasterReportRounds`가 표 셀 안의 회차 제목 단락을 `lastIndexOf("<hp:p ")`로 잘라 복제 블록이 표 중간에서 시작(태그 불균형). 최상위 요소(`topLevelEls`) 경계로 수정. 식다과·교재 수령확인서 일차 단락도 일수에 맞게 재생성
+- **문서 보안 '높음'에서 "손상/변조 가능성" 판정** → 텍스트 치환 후 남은 `hp:linesegarray`(줄 레이아웃 캐시)가 본문과 어긋나면 한글이 변조로 판정([한컴 포럼](https://forum.developer.hancom.com/t/hwpx-section0-xml/2414)). `packageHwpx`에서 section*.xml의 linesegarray 전부 제거(한글이 재계산)
 
 ---
 

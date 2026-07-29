@@ -101,6 +101,15 @@ async function packageHwpx(zip) {
     hpf = hpf.replace(/<opf:itemref\b[^>]*\bidref="(?:headersc|sourcesc)"[^>]*\/>/g, "");
     zip.file("Contents/content.hpf", hpf);
   }
+  // 텍스트 치환 후 남은 줄 레이아웃 캐시(linesegarray)가 본문과 어긋나면 한글이
+  // "손상/변조 가능성" 문서로 판정해 [문서 보안 설정] 낮음에서만 열린다 → 전부 제거(한글이 재계산).
+  for (const k of Object.keys(zip.files)) {
+    if (/^Contents\/section\d+\.xml$/.test(k)) {
+      let sec = await zip.file(k).async("string");
+      sec = sec.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>|<hp:linesegarray\s*\/>/g, "");
+      zip.file(k, sec);
+    }
+  }
   const mt = await zip.file("mimetype").async("uint8array");
   zip.file("mimetype", mt, { compression: "STORE" });  // 키 재지정은 순서 보존
   for (const k of Object.keys(zip.files)) {
@@ -495,27 +504,30 @@ function fillReportOpinions(xml, cloner, data) {
 
 // ── 결과보고서: 사용자 완성본(마스터) 기준 치환 ──
 // 완성본 회차2 블록(「디지털새싹」 프로그램 2회차 ~ "3. 기타 운영사항" 직전)을 일수에 맞게 복제/삭제
+// 회차 제목 단락은 표 셀 안에 있으므로 경계는 최상위 요소(topLevelEls) 단위로 잡아야 한다.
+// (제목 텍스트 위치에서 lastIndexOf("<hp:p ")로 자르면 표 중간이 잘려 XML이 깨짐 → "손상된 파일")
 function expandMasterReportRounds(xml, days) {
   const D = days.length;
   if (D === 2) return xml;
-  const r2 = xml.indexOf("2회차");
-  if (r2 < 0) return xml;
-  const h2 = xml.lastIndexOf("「디지털새싹」 프로그램", r2);
-  const b2 = xml.lastIndexOf("<hp:p ", h2);
-  const g = xml.indexOf("3. 기타 운영사항");
-  const gs = xml.lastIndexOf("<hp:p ", g);
-  if (b2 < 0 || gs < 0 || b2 >= gs) return xml;
-  const block2 = xml.slice(b2, gs);
+  const secm = xml.match(/<hs:sec\b[^>]*>/);
+  const els = topLevelEls(xml, secm ? secm.index + secm[0].length : 0);
+  const e2 = els.find(e => /2회차 결과보고/.test(e.text));
+  const gisa = els.find(e => /3\. 기타 운영사항/.test(e.text));
+  if (!e2 || !gisa || e2.start >= gisa.start) return xml;
+  const b2 = e2.start, gs = gisa.start;
+  const block2 = xml.slice(b2, gs);   // 회차2 표 + "1. 프로그램 운영결과" + 사진표 + 사이 빈 단락
   if (D < 2) return xml.slice(0, b2) + xml.slice(gs);   // 1일: 회차2 삭제
-  // 3일 이상: 회차2 블록 복제(3..D), 회차번호·일차 날짜 갱신, id 재부여
+  // 3일 이상: 회차2 블록 복제(3..D), 회차번호·일차 날짜 갱신, id·zOrder 재부여
   let maxId = Math.max(...[...xml.matchAll(/\bid="(\d{6,})"/g)].map(x => +x[1]), 0);
+  let maxZ = Math.max(...[...xml.matchAll(/zOrder="(\d+)"/g)].map(x => +x[1]), 0);
   let clones = "";
   for (let k = 3; k <= D; k++) {
     const d = days[k - 1];
     clones += block2
       .replace(/<hp:t>2회차<\/hp:t>/, `<hp:t>${k}회차</hp:t>`)
       .replace(/<hp:t>\(2일차\)[^<]*<\/hp:t>/, `<hp:t>(${k}일차) ${pad2(d.date.m)}월 ${pad2(d.date.d)}일 / ${fmtTime(d.start)} ~ ${fmtTime(d.end)}</hp:t>`)
-      .replace(/\bid="(\d{6,})"/g, () => `id="${++maxId}"`);
+      .replace(/\bid="(\d{6,})"/g, () => `id="${++maxId}"`)
+      .replace(/zOrder="\d+"/g, () => `zOrder="${++maxZ}"`);
   }
   return xml.slice(0, gs) + clones + xml.slice(gs);
 }
@@ -550,6 +562,15 @@ export async function buildReportHwpx(templateBuf, data) {
 
   if (days.length) {
     xml = expandMasterReportRounds(xml, days);
+    // 식다과·교재 수령확인서 운영일시 칸: 연속된 일차 단락 2개(마스터 2일치)를 일수에 맞게 재생성.
+    // 회차 블록의 운영일시는 단락 1개짜리라 {2,}에 안 걸려 그대로 유지된다.
+    xml = xml.replace(/(?:<hp:p\b[^>]*>(?:(?!<\/hp:p>)[\s\S])*?<hp:t>\(\d일차\)[^<]*<\/hp:t>(?:(?!<\/hp:p>)[\s\S])*?<\/hp:p>){2,}/g, (block) => {
+      const one = block.match(/<hp:p\b[^>]*>(?:(?!<\/hp:p>)[\s\S])*?<\/hp:p>/)[0];
+      return days.map((d, i) =>
+        one.replace(/<hp:t>\(\d일차\)[^<]*<\/hp:t>/,
+          `<hp:t>(${i + 1}일차) ${pad2(d.date.m)}월 ${pad2(d.date.d)}일 / ${fmtTime(d.start)} ~ ${fmtTime(d.end)}</hp:t>`)
+      ).join("");
+    });
     const f = days[0].date, l = days[days.length - 1].date;
     const period = `2026년 ${pad2(f.m)}월 ${pad2(f.d)}일 ~ ${pad2(l.m)}월 ${pad2(l.d)}일`;
     const t0 = `${fmtTime(days[0].start)} ~ ${fmtTime(days[0].end)}`;

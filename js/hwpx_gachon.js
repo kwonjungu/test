@@ -56,6 +56,15 @@ async function packageHwpx(zip) {
     hpf = hpf.replace(/<opf:itemref\b[^>]*\bidref="(?:headersc|sourcesc)"[^>]*\/>/g, "");
     zip.file("Contents/content.hpf", hpf);
   }
+  // 치환 후 남은 줄 레이아웃 캐시(linesegarray)가 본문과 어긋나면 한글이
+  // "손상/변조 가능성" 문서로 판정(보안설정 낮음에서만 열림) → 전부 제거(한글이 재계산).
+  for (const k of Object.keys(zip.files)) {
+    if (/^Contents\/section\d+\.xml$/.test(k)) {
+      let sec = await zip.file(k).async("string");
+      sec = sec.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>|<hp:linesegarray\s*\/>/g, "");
+      zip.file(k, sec);
+    }
+  }
   const mt = await zip.file("mimetype").async("uint8array");
   zip.file("mimetype", mt, { compression: "STORE" });
   for (const k of Object.keys(zip.files)) if (zip.files[k].dir) delete zip.files[k];
