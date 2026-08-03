@@ -1,6 +1,7 @@
 :root {
   --navy: #1e3a8a;
   --blue: #2563eb;
+  --green: #3ea84b;
   --ink: #1f2937;
   --muted: #6b7280;
   --line: #e5e7eb;
@@ -66,6 +67,34 @@ header { background: linear-gradient(135deg, #1e3a8a, #2563eb); color: #fff; pad
 header h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
 header .sub { margin: 0; opacity: .9; font-size: 13.5px; max-width: 680px; }
 
+/* 진행 단계 스테퍼 */
+.flow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.fstep {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 14px 6px 8px; border-radius: 20px; font-size: 12.5px; font-weight: 600;
+  background: rgba(255,255,255,.12); color: rgba(255,255,255,.75);
+  border: 1px solid rgba(255,255,255,.18);
+}
+.fstep b {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%; font-size: 11.5px;
+  background: rgba(255,255,255,.25); color: #fff;
+}
+.fstep.is-current { background: #fff; color: var(--navy); border-color: #fff; }
+.fstep.is-current b { background: var(--navy); color: #fff; }
+.fstep.is-done { color: #d7f5de; border-color: rgba(120,220,140,.5); }
+.fstep.is-done b { background: var(--green); }
+.fstep.is-done b::before { content: "✓"; }
+.fstep.is-done b { font-size: 0; }
+.fstep.is-done b::before { font-size: 11.5px; }
+
+/* '또는' 구분선 */
+.or-divider {
+  display: flex; align-items: center; gap: 10px; margin: 12px 0;
+  color: var(--muted); font-size: 12px; font-weight: 600;
+}
+.or-divider::before, .or-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
 /* 레이아웃 */
 main { max-width: 920px; margin: 24px auto; padding: 0 20px; display: flex; flex-direction: column; gap: 18px; }
 .card {
@@ -116,10 +145,14 @@ button.ghost:hover { background: #eff6ff; }
 /* 변환·다운로드 카드 */
 .action-card { text-align: left; }
 .btn-convert {
-  background: var(--navy); color: #fff; border: 0; padding: 13px 32px;
-  border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer;
+  background: var(--navy); color: #fff; border: 0; padding: 14px 40px;
+  border-radius: 10px; font-size: 16px; font-weight: 700; cursor: pointer;
   box-shadow: 0 2px 6px rgba(30,58,138,.25); transition: transform .05s;
 }
+button:focus-visible, a.btn-dl:focus-visible, select:focus-visible {
+  outline: 3px solid rgba(37,99,235,.45); outline-offset: 2px;
+}
+@media (max-width: 560px) { .btn-convert { width: 100%; } }
 .btn-convert:hover { background: #1b327a; }
 .btn-convert:active { transform: translateY(1px); }
 

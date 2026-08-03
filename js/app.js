@@ -1,11 +1,11 @@
-import { RegionResolver, SIDO_LIST } from "./region.js?v=30";
+import { RegionResolver, SIDO_LIST } from "./region.js?v=31";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=30";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=30";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=30";
-import { NEIS_API_KEY } from "./config.js?v=30";
+} from "./convert.js?v=31";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=31";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=31";
+import { NEIS_API_KEY } from "./config.js?v=31";
 
 const $ = (id) => document.getElementById(id);
 const resolver = new RegionResolver();
@@ -122,6 +122,7 @@ function loadTemplates() {
   if (ORG === "가천대학교") { loadGachonTemplates(get); return; }
 
   // ── 대림대학교 양식 세트 ──
+  get("배너양식.pptx", b => gBannerTemplateBuf = b);   // 배너는 두 기관 공통 자동화 (기관별 디자인)
   get("교구관리대장양식.hwpx", b => equipTemplateBuf = b);
   get("결과보고서양식.hwpx", b => reportTemplateBuf = b);
   get("안전업무일지양식.hwpx", b => safetyTemplateBuf = b);
@@ -157,6 +158,7 @@ async function startApp() {
     setStatus("dbStatus",
       `원DB 내장됨 — 참고 학교 ${info.schools}개 / 학급 ${info.classes}건`,
       info.schools ? "ok" : "warn");
+    populateCampSelect();
   });
 
   loadTemplates();
@@ -184,6 +186,7 @@ async function startApp() {
   const bind = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
 
   bind("rosterFile", "change", onRoster);
+  bind("campSelect", "change", onCampSelect);
   bind("schoolSearchBtn", "click", onSchoolSearch);
   bind("schoolSearch", "keydown", e => { if (e.key === "Enter") onSchoolSearch(); });
   bind("convertBtn", "click", onConvert);
@@ -194,6 +197,7 @@ async function startApp() {
   if (ORG === "가천대학교") {
     setupGachonUI(bind);
   } else {
+    bind("downloadBannerBtn", "click", onGachonBanner);   // 배너 자동 생성 (두 기관 공통 로직)
     bind("downloadHwpxBtn", "click", onDownloadHwpx);
     bind("downloadHwpx2Btn", "click", onDownloadHwpx);
     bind("downloadEquipBtn", "click", onDownloadEquip);
@@ -390,8 +394,54 @@ async function onRoster(e) {
       "학생을 찾지 못했습니다. 시트(오전반/오후반)와 '이름·전화' 헤더가 있는 표준 양식인지 확인하세요.", "warn");
     return;
   }
+  const cs = $("campSelect"); if (cs) cs.value = "";   // 파일 업로드가 드롭다운 선택보다 우선
   setStatus("rosterStatus",
     `명단 로드됨: ${f.name} — 클래스 ${parsedBlocks.length}개`, "ok");
+  renderSettings(parsedBlocks);
+}
+
+// ---- 원DB 캠프 드롭다운 — 명단 파일 없이 학교·프로그램 선택으로 시작 ----
+let campGroups = [];   // {school, program, course, am, pm}
+function populateCampSelect() {
+  const sel = $("campSelect");
+  if (!sel) return;
+  const short = profile().short;
+  const byKey = {};
+  for (const r of resolver.programClasses) {
+    if ((r["기관"] || "").trim() !== short) continue;
+    const school = (r["학교명"] || "").trim();
+    const program = (r["프로그램명"] || "").trim();
+    if (!school || !program) continue;
+    const key = school + "|" + program.replace(/\([^)]*차시\)/g, "").replace(/\s+/g, "");
+    const g = byKey[key] || (byKey[key] = { school, program, course: (r["과정"] || "").trim(), am: false, pm: false });
+    if (parseFloat(r["오전반(명)"]) > 0) g.am = true;
+    if (parseFloat(r["오후반(명)"]) > 0) g.pm = true;
+  }
+  campGroups = Object.values(byKey).sort((a, b) => a.school.localeCompare(b.school, "ko"));
+  sel.innerHTML = `<option value="">— 학교·프로그램 선택 —</option>` +
+    campGroups.map((g, i) => {
+      const cls = [g.am && "오전", g.pm && "오후"].filter(Boolean).join("·");
+      return `<option value="${i}">${escHtml(g.school)} — ${escHtml(g.program)}${cls ? ` [${cls}]` : ""}</option>`;
+    }).join("");
+  sel.disabled = !campGroups.length;
+  if (!campGroups.length) sel.innerHTML = `<option value="">— 이 기관의 원DB 캠프 없음 —</option>`;
+}
+function onCampSelect() {
+  const g = campGroups[+$("campSelect").value];
+  if (!g) return;
+  const mk = (sheet) => ({
+    sheet, school: g.school, program: g.program, students: [], dates: [], fromDb: true,
+    courseType: g.course || "", mainTeacher: "", assistantTeacher: "", safetyManager: ""
+  });
+  parsedBlocks = [];
+  if (g.am || !g.pm) parsedBlocks.push(mk("오전반"));
+  if (g.pm) parsedBlocks.push(mk("오후반"));
+  rosterBuf = null;
+  const rf = $("rosterFile"); if (rf) rf.value = "";
+  rosterName = g.school;
+  const ss = $("schoolSearch"); if (ss && !ss.value.trim()) ss.value = g.school;
+  setStatus("rosterStatus",
+    `원DB에서 선택됨: ${g.school} — ${g.program} · 일정 자동 적용 (학생 실명 서류는 명단 업로드 필요)`, "ok");
   renderSettings(parsedBlocks);
 }
 
@@ -418,7 +468,8 @@ function dayRowHtml(id, i, date, start, end) {
 // 클래스(오전/오후)별 편집 패널
 function renderSettings(blocks) {
   const host = $("settings");
-  host.innerHTML = "<h2>2.5 캠프 정보 확인·수정 <span class=\"opt\">변환 전</span></h2>";
+  host.innerHTML = "<h2><span class=\"step\">✎</span>캠프 정보 확인·수정 <span class=\"opt\">변환 전에 확인</span></h2>" +
+    "<p class=\"hint\" style=\"margin:0 0 6px\">프로그램·일정·담당자 이름을 확인하고 비어 있으면 채워주세요. 담당자 이름은 서류와 파일명에 들어갑니다.</p>";
   let prevId = null;
   for (const blk of blocks) {
     const id = cssId(blk.sheet);
@@ -509,6 +560,7 @@ function renderSettings(blocks) {
     prevId = id;
   }
   host.style.display = blocks.length ? "block" : "none";
+  if (blocks.length) setFlowStep(2);
 }
 
 // 링크 로드 시: 저장된 settings 값을 설정 패널 입력칸에 그대로 복원
@@ -602,7 +654,7 @@ function parseDateInput(s) {
 }
 
 async function onConvert() {
-  if (!rosterBuf) { alert("캠프명단을 먼저 업로드하세요"); return; }
+  if (!parsedBlocks || !parsedBlocks.length) { alert("캠프명단을 업로드하거나, 원DB에서 캠프를 선택하세요."); return; }
   if (!xlsxTemplateBuf) { alert("등록양식 템플릿 로딩 중입니다. 잠시 후 다시 시도하세요."); return; }
   setStatus("convertStatus", "변환 중…", "");
 
@@ -626,8 +678,9 @@ async function onConvert() {
 
   renderPreview(lastClasses);
   const total = refreshDownloadButtons();
+  setFlowStep(4);
   setStatus("convertStatus",
-    `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명`, "ok");
+    `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명 — 아래에서 서류를 내려받으세요.`, "ok");
 }
 
 // 다운로드 버튼 활성화 일괄 갱신 (변환 완료 / 링크 로드 / 템플릿 로드 후 공용)
@@ -639,15 +692,19 @@ function refreshDownloadButtons() {
   // 가천대 모드는 대림대 버튼이 없으므로(가천대 그리드로 교체됨) 먼저 분기
   if (ORG === "가천대학교") { refreshGachonButtons(total); return total; }
   $("downloadBtn").disabled = total === 0;
+  const bannerBtn = $("downloadBannerBtn");
+  if (bannerBtn) bannerBtn.disabled = !lastClasses.length || !gBannerTemplateBuf;
   $("downloadHwpxBtn").disabled = total === 0 || !hwpxTemplateBuf;
   $("downloadHwpx2Btn").disabled = total === 0 || !hwpxTemplateBuf;
-  $("downloadReportBtn").disabled = total === 0 || !reportTemplateBuf;
-  $("downloadSafetyBtn").disabled = total === 0 || !safetyTemplateBuf;
-  $("downloadChecklistBtn").disabled = total === 0 || !checklistTemplateBuf;
-  $("downloadPayBtn").disabled = total === 0 || !payTemplateBuf;
+  // 실명이 필요 없는 서류는 학생 0명(원DB 선택 시작)이어도 클래스만 있으면 활성화
+  const ready = lastClasses.length > 0;
+  $("downloadReportBtn").disabled = !ready || !reportTemplateBuf;
+  $("downloadSafetyBtn").disabled = !ready || !safetyTemplateBuf;
+  $("downloadChecklistBtn").disabled = !ready || !checklistTemplateBuf;
+  $("downloadPayBtn").disabled = !ready || !payTemplateBuf;
   const anySocial = lastClasses.some(c => (c.settings || {}).social);
   $("downloadMultiBtn").disabled = total === 0 || !multiTemplateBuf || !anySocial;
-  $("downloadCaseBtn").disabled = total === 0 || !caseTemplateBuf;
+  $("downloadCaseBtn").disabled = !ready || !caseTemplateBuf;
   updateGatedBtns();   // 교구·주강사료(주강사) / 안전 지급·계약서(안전관리자) 게이팅
   return total;
 }
@@ -1224,6 +1281,26 @@ function lastDateOf(classes) {
   return last;
 }
 
+// ---- 가천대 제출 파일명 (구글폼 양식 고정) ----
+// 예) [2026 가천대 디지털 새싹] 1기 교구 지급 보고서(한솔초_코드블루! 도시의 골든타임을 지켜라_홍길동).hwpx
+const G_PREFIX = "[2026 가천대 디지털 새싹] 1기";
+// 캠프명 = 프로그램명에서 "(초저) " 등 앞 괄호 접두 제거
+function gCampName(p) { return (p || "").replace(/^\([^)]*\)\s*/, "").trim(); }
+// (캠프장소명_캠프명_이름[_반]) — 오전/오후 반이 2개 이상이면 반 이름을 붙여 파일명 충돌 방지
+function gFileName(doc, parts, ext = "hwpx") {
+  const body = parts.filter(Boolean).map(safeName).join("_");
+  return `${G_PREFIX} ${doc}(${body}).${ext}`;
+}
+// 강의·업무보고서 파일명의 (이름_소속) — 소속은 세션당 1회 입력받아 재사용
+let gAffiliation = "";
+function askAffiliation() {
+  if (!gAffiliation) {
+    const v = prompt("파일명 (이름_소속)에 들어갈 소속을 입력하세요.\n예) 디지털새싹 / OO초등학교 / OO회사", "");
+    gAffiliation = (v || "").trim();
+  }
+  return gAffiliation;
+}
+
 // 1) 교구 지급 보고서 (주강사) — 클래스별
 async function onGachonEquip() {
   if (!lastClasses || !lastClasses.length || !gEquipTemplateBuf) return;
@@ -1242,7 +1319,9 @@ async function onGachonEquip() {
       program: st.program || c.program || "", school: c.school || "",
       mainTeacher: st.mainTeacher || "", equipQty: st.equipQty || "", days: st.days || []
     });
-    triggerDownload(blob, `교구지급보고서_${ownerTag(st.mainTeacher)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, gFileName("교구 지급 보고서",
+      [c.school, gCampName(st.program || c.program), st.mainTeacher || rosterName,
+       lastClasses.length > 1 ? c.className : ""]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -1257,7 +1336,9 @@ async function onGachonMeal() {
       names: c.realNames || [], mainTeacher: st.mainTeacher || "",
       assistantTeacher: st.assistantTeacher || "", days: st.days || []
     });
-    triggerDownload(blob, `식다과수령대장_${ownerTag(st.assistantTeacher)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, gFileName("식다과 수령대장",
+      [c.school, gCampName(st.program || c.program), st.assistantTeacher || rosterName,
+       lastClasses.length > 1 ? c.className : ""]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -1271,7 +1352,9 @@ async function onGachonMaterial() {
       program: st.program || c.program || "", school: c.school || "",
       names: c.realNames || [], assistantTeacher: st.assistantTeacher || "", days: st.days || []
     });
-    triggerDownload(blob, `교재교구수령대장_${ownerTag(st.assistantTeacher)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, gFileName("교재교구 수령대장",
+      [c.school, gCampName(st.program || c.program), st.assistantTeacher || rosterName,
+       lastClasses.length > 1 ? c.className : ""]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -1289,7 +1372,9 @@ async function onGachonReport() {
       program: st.program || c.program || "", school: c.school || "",
       days: st.days || [], opinions
     });
-    triggerDownload(blob, `결과보고서_${ownerTag(st.assistantTeacher)}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, gFileName("결과 보고서",
+      [c.school, gCampName(st.program || c.program), st.assistantTeacher || rosterName,
+       lastClasses.length > 1 ? c.className : ""]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
   setStatus("convertStatus", Object.keys(opinions).length ? "결과 보고서 다운로드 완료 (AI 추진의견 포함)" : "결과 보고서 다운로드 완료 (AI 의견 생성 실패 — 빈칸)", "ok");
@@ -1314,7 +1399,7 @@ async function onGachonLecture(role) {
     program: st0.program || c0.program || "", school: c0.school || "",
     name, role, days: blocks
   });
-  triggerDownload(blob, `강의보고서_${role}_${ownerTag(name)}.hwpx`);
+  triggerDownload(blob, `${G_PREFIX} 강의보고서 (${safeName(name)}_${safeName(askAffiliation() || rosterName)}).hwpx`);
 }
 
 // 6) 업무 보고서 (안전관리자) — 캠프 1부, 안전 정산(20,000/시간, 반별 1일 한도 60,000)
@@ -1332,7 +1417,7 @@ async function onGachonWork() {
     program: st0.program || c0.program || "", school: c0.school || "",
     name: nm, days: (st0.days || []), totalAmount: total.toLocaleString(), rounds, calcLine
   });
-  triggerDownload(blob, `업무보고서_${ownerTag(nm)}.hwpx`);
+  triggerDownload(blob, `${G_PREFIX} 업무보고서 (${safeName(nm)}_${safeName(askAffiliation() || rosterName)}).hwpx`);
 }
 
 // 3-2) 안전관리 서약서 (안전) — 캠프 1부, 프로그램·기간·학교·서약일(시작-2) 자동
@@ -1342,7 +1427,8 @@ async function onGachonSafetyPledge() {
   const blob = await buildGachonSafetyPledgeHwpx(gPledgeTemplateBuf, {
     program: st0.program || c0.program || "", school: c0.school || "", days: st0.days || []
   });
-  triggerDownload(blob, `안전관리서약서_${safeName(c0.school || "")}.hwpx`);
+  triggerDownload(blob, gFileName("안전관리서약서",
+    [c0.school, gCampName(st0.program || c0.program), st0.safetyManager]));
 }
 
 // 3-3) 안전 결과보고서 (안전) — 클래스별, 프로그램·운영기간(날짜+시간)·학교 자동
@@ -1353,7 +1439,9 @@ async function onGachonSafetyReport() {
     const blob = await buildGachonSafetyReportHwpx(gSafetyReportTemplateBuf, {
       program: st.program || c.program || "", school: c.school || "", days: st.days || []
     });
-    triggerDownload(blob, `안전결과보고서_${safeName(c.school || "")}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, gFileName("안전결과보고서",
+      [c.school, gCampName(st.program || c.program), st.safetyManager,
+       lastClasses.length > 1 ? c.className : ""]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -1367,7 +1455,9 @@ async function onGachonChecklist() {
     const blob = await buildGachonChecklistHwpx(gChecklistTemplateBuf, {
       name: st.safetyManager || "", days: st.days || []
     });
-    triggerDownload(blob, `안전체크리스트_${safeName(c.school || "")}_${safeName(c.className)}.hwpx`);
+    triggerDownload(blob, gFileName("운영전후 안전관리 체크리스트",
+      [c.school, gCampName((c.settings || {}).program || c.program), st.safetyManager,
+       lastClasses.length > 1 ? c.className : ""]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -1390,6 +1480,14 @@ async function onGachonBanner() {
 }
 
 // ---- 유틸 ----
+// 헤더 진행 단계 스테퍼: n단계를 현재로, 이전 단계는 완료 표시
+function setFlowStep(n) {
+  document.querySelectorAll("#flowSteps .fstep").forEach(el => {
+    const s = +el.dataset.step;
+    el.classList.toggle("is-done", s < n);
+    el.classList.toggle("is-current", s === n);
+  });
+}
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function safeName(s) { return (s || "").replace(/[\\/:*?"<>|]/g, "_"); }
 // 담당자 이름이 있으면 그 이름으로, 없으면 명단 파일명으로 대체

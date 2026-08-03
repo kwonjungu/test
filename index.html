@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>디싹 캠프 서류 자동화</title>
-<link rel="stylesheet" href="styles.css?v=30">
+<link rel="stylesheet" href="styles.css?v=31">
 </head>
 <body>
 <!-- 진입 게이트: 운영 기관 선택 -->
@@ -23,16 +23,31 @@
 <header>
   <div class="header-inner">
     <h1>디싹 캠프 서류 자동화</h1>
-    <p class="sub">캠프명단 한 번 업로드로 등록양식·수령대장·교구관리대장·결과보고서·안전서류·강사료신청서까지 자동 작성.
+    <p class="sub">명단을 올리거나 캠프를 선택하면 제출 서류가 자동으로 만들어집니다.
       모든 처리는 브라우저 안에서만 이루어집니다.</p>
+    <nav id="flowSteps" class="flow" aria-label="진행 단계">
+      <span class="fstep is-current" data-step="1"><b>1</b>명단 준비</span>
+      <span class="fstep" data-step="2"><b>2</b>정보 확인</span>
+      <span class="fstep" data-step="3"><b>3</b>변환</span>
+      <span class="fstep" data-step="4"><b>4</b>서류 받기</span>
+    </nav>
   </div>
 </header>
 
 <main>
   <section class="card">
-    <h2><span class="step">1</span>캠프명단 업로드 <span class="req">필수</span></h2>
+    <h2><span class="step">1</span>캠프명단 올리기 <span class="req">필수</span></h2>
+    <p class="hint" style="margin:0 0 10px">엑셀 명단이 있으면 올리고, 없으면 아래에서 캠프를 선택하세요.</p>
     <div class="field">
       <input type="file" id="rosterFile" accept=".xlsx">
+    </div>
+    <div class="or-divider"><span>또는 명단 파일 없이</span></div>
+    <div class="field">
+      <label class="fld" style="width:100%">원DB에서 캠프 선택 <span class="opt">학생 실명 없음</span>
+        <select id="campSelect" disabled style="max-width:520px"><option value="">— DB 로딩 중 —</option></select>
+      </label>
+      <p class="hint" style="margin:4px 0 0">드롭다운으로 선택하면 학교·프로그램·일정이 자동 입력됩니다.
+        학생 실명이 들어가는 서류(등록양식·수령대장)는 명단 업로드가 필요합니다.</p>
     </div>
     <div id="rosterStatus" class="status"></div>
     <p class="hint">📄 표준 양식(프로그램명 드롭다운 포함)으로 작성하세요 —
@@ -53,7 +68,7 @@
   </section>
 
   <section class="card">
-    <h2><span class="step">2</span>지역 자동완성 <span class="opt">자동</span></h2>
+    <h2><span class="step">2</span>학교·지역 확인 <span class="opt">대부분 자동</span></h2>
     <div id="neisStatus" class="status"></div>
     <div class="inline-fields">
       <label class="fld">학교 검색
@@ -72,7 +87,9 @@
   <section class="card" id="settings" style="display:none"></section>
 
   <section class="card action-card">
-    <button id="convertBtn" class="btn-convert">변환하기</button>
+    <h2><span class="step">3</span>변환하고 서류 받기</h2>
+    <button id="convertBtn" class="btn-convert">변환하기 →</button>
+    <p class="hint" style="margin:8px 0 0">변환을 누르면 아래 서류 버튼이 켜집니다. 필요한 서류만 눌러 내려받으세요.</p>
     <div id="convertStatus" class="status"></div>
 
     <div id="shareBox" class="share-box" style="display:none">
@@ -94,6 +111,7 @@
         <h4 class="dl-h dl-h-common">📋 공통 · 학생</h4>
         <div class="dl-grid">
           <button id="downloadBtn" class="btn-dl dl-common" disabled><b class="idx">학생</b>수업신청학생등록양식<small>xlsx · 익명화 · 클래스별</small></button>
+          <button id="downloadBannerBtn" class="btn-dl dl-common" disabled><b class="idx">배너</b>캠프 배너<small>pptx · 학교명·일시 자동</small></button>
         </div>
       </div>
       <div class="dl-group">
@@ -142,6 +160,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<script type="module" src="js/app.js?v=30"></script>
+<script type="module" src="js/app.js?v=31"></script>
 </body>
 </html>

@@ -334,7 +334,7 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
   const socialByClass = opts.socialByClass || {};
   const classes = [];
   for (const blk of blocks) {
-    if (!blk.students.length) continue;   // 학생 없는 클래스는 제외
+    if (!blk.students.length && !blk.fromDb) continue;   // 학생 없는 클래스는 제외 (원DB 선택 클래스는 학생 0명 허용)
     // 체크박스 우선, 없으면 프로그램명 자동감지
     const social = (blk.sheet in socialByClass)
       ? !!socialByClass[blk.sheet]

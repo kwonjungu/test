@@ -257,6 +257,27 @@ export async function buildGachonReportHwpx(templateBuf, data) {
 // 실적 4블록: 강의일자/횟수(1회)/강사료/산출내역(1회 X N시간 X 단가). 일자별로 채우고 남으면 비움.
 // data: { program, school, name, role:"주강사"|"보조강사", days, lastDate }
 const LECTURE_UNIT = { "주강사": 75000, "보조강사": 45000 };
+
+// 프로그램명 표시용: "(초저) " 등 앞 괄호 접두를 뗀 이름
+function progDisplay(p) { return (p || "").replace(/^\([^)]*\)\s*/, "").trim(); }
+
+// 강의내용 4번(업무 내용) — 양식에 박힌 기본 문구 대신 프로그램별 한 줄(원문과 비슷한 길이)
+const ACTIVITY_BY_PROGRAM = [
+  { key: /마음건강|휴로/, line: "체험형 AI 감정 표현과 휴머노이드 로봇 교감 코딩 커리큘럼" },
+  { key: /코드블루|골든타임/, line: "응급 상황 분류와 구급 로봇 코딩으로 컴퓨팅 사고력을 기르는 커리큘럼" },
+  { key: /간식|레벨업|데이터로/, line: "간식 영양성분 데이터 수집·분석으로 데이터 소양을 기르는 커리큘럼" },
+  { key: /주니어|메디\s*로봇\s*출시/, line: "AI 메디 로봇 기획·제작과 창업 체험 프로젝트 커리큘럼" },
+  { key: /메디컬\s*DX/, line: "의료 AI·로보틱스 실습으로 인공지능 소양을 기르는 커리큘럼" },
+  { key: /해커톤|디자인\s*씽킹|디자인씽킹/, line: "디자인씽킹 기반 AI 메디컬 해커톤 프로젝트 커리큘럼" },
+  { key: /다가치|多|국경/, line: "디지털 콘텐츠 제작으로 의료·보건 문제를 해결하는 포용형 커리큘럼" }
+];
+function activityLine(program, role) {
+  const hit = ACTIVITY_BY_PROGRAM.find(a => a.key.test(program || ""));
+  const base = hit ? hit.line : "아이들의 컴퓨팅 사고력 향상을 위한 커리큘럼";
+  return role === "보조강사"
+    ? `프로그램 운영 보조강사, ${base} 진행 보조 및 학생 지도`
+    : `프로그램 운영 주강사, ${base} 운영`;
+}
 export async function buildGachonLectureHwpx(templateBuf, data) {
   const { zip, path } = await loadSection(templateBuf);
   let xml = await zip.file(path).async("string");
@@ -291,6 +312,13 @@ export async function buildGachonLectureHwpx(templateBuf, data) {
   // 학교/역할/프로그램명(강의내용 칸): "한솔초"·"주강사"
   if (data.school) xml = replaceInRun(xml, "한솔초", () => ` ${data.school} `);
   if (data.role) xml = xml.replace(/<hp:t>주강사<\/hp:t>/g, `<hp:t>${xmlEsc(data.role)}</hp:t>`);
+  // 강의내용 칸의 박힌 값 교체: 역할 줄, 프로그램명(양식 기본 "알고리즘 타고 건강으로 GO!"), 업무 내용
+  if (data.role) xml = replaceText(xml, "2. 역할 : 주강사", `2. 역할 : ${data.role}`);
+  const progNm = progDisplay(data.program);
+  if (progNm) xml = replaceText(xml, "알고리즘 타고 건강으로 GO!", progNm);
+  xml = replaceText(xml,
+    "프로그램 운영 주강사, 아이들의 컴퓨팅 사고력 향상을 위한 커리큘럼 운영",
+    activityLine(data.program, data.role));
   // 총 지급 신청액 "1,200,000 원"(' 원'까지 한 run) → 부분치환
   const grand = blockAmts.reduce((a, b) => a + b, 0);
   xml = replaceInRun(xml, "1,200,000", (t) => t.replace(/1,200,000/, grand.toLocaleString()));
@@ -332,6 +360,10 @@ export async function buildGachonWorkHwpx(templateBuf, data) {
   if (data.rounds) xml = xml.replace(/<hp:t>4회<\/hp:t>/g, `<hp:t>${xmlEsc(String(data.rounds))}회</hp:t>`);
   if (data.school) xml = replaceInRun(xml, "한솔초", () => ` ${data.school} `);
   if (data.name) xml = replaceText(xml, "권준구", data.name);
+  // 내용 칸의 박힌 값 교체: 프로그램명(양식 기본 "알고리즘 타고 건강으로 GO!") + 역할 오타 보정
+  const progNm = progDisplay(data.program);
+  if (progNm) xml = replaceText(xml, "알고리즘 타고 건강으로 GO!", progNm);
+  xml = replaceText(xml, "2. 역할 : 전관리자", "2. 역할 : 안전관리자");
   if (ds.length) {
     const l = ds[ds.length - 1].date;
     xml = replaceInRun(xml, "년    월    일", () => `년  ${l.m}  월  ${l.d}  일`);
