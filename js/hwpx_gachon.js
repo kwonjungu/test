@@ -94,6 +94,9 @@ function fillCommonHead(xml, data) {
     // 머리표의 값칸 "프로그램명"(라벨이 아닌 값 자리)도 채움 — charPrIDRef 20(값) 우선
     xml = xml.replace(/<hp:run charPrIDRef="20"><hp:t>프로그램명<\/hp:t><\/hp:run>/g,
       `<hp:run charPrIDRef="20"><hp:t>${xmlEsc(data.program)}</hp:t></hp:run>`);
+    // 수령대장류: 값칸 글자모양이 달라(charPr 18 등) 위 규칙에 안 걸림 → 표 2열(colAddr=1) 셀의 "프로그램명" 값도 채움
+    xml = xml.replace(/(<hp:run charPrIDRef="\d+"><hp:t>)프로그램명(<\/hp:t><\/hp:run>(?:<hp:linesegarray>(?:(?!<\/hp:linesegarray>)[\s\S])*<\/hp:linesegarray>)?<\/hp:p><\/hp:subList><hp:cellAddr colAddr="1")/g,
+      (m, a, b) => `${a}${xmlEsc(data.program)}${b}`);
   }
   return xml;
 }

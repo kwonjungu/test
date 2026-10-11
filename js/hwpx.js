@@ -4,7 +4,7 @@
 // hwpx는 zip+XML 패키지. Contents/section0.xml의 표(hp:tbl)에
 // - 성명: colAddr="1" rowAddr=2..26 셀의 빈 run에 학생명 주입
 // - 날짜헤더: colAddr>=2 rowAddr=0 셀의 "(N일차) 월 일"을 실제 날짜로 치환
-// 표는 2개(8차시: 수기서명 2개 / 12차시: 수기서명 4개) → 차시에 맞는 표만 채움.
+// 표는 2개(8차시: 수기서명 2개 / 12차시: 수기서명 4개) → 두 표 모두 채움.
 
 function xmlEsc(s) {
   return (s ?? "").toString()
@@ -64,17 +64,12 @@ export async function buildReceiptHwpx(templateBuf, { names, chasi, dates }) {
   let m;
   while ((m = re.exec(xml)) !== null) tbls.push({ start: m.index, end: re.lastIndex, text: m[0] });
 
-  // 차시에 맞는 표만 채움: 수기서명 2개=8차시, 4개=12차시
-  const signCount = (s) => (s.match(/수기 서명/g) || []).length;
+  // 기본(8차시)·특화(12차시) 두 표 모두 명단·날짜를 채움 — 어느 쪽을 열어도 명단이 보이도록
+  // (날짜 칸은 표의 일차 수만큼만 채워짐. 제출 시 해당 양식 쪽만 사용)
   for (let i = tbls.length - 1; i >= 0; i--) {
     const t = tbls[i];
-    const sc = signCount(t.text);
-    const isTarget = (chasi === 8 && sc === 2) || (chasi === 12 && sc === 4)
-      || (chasi !== 8 && chasi !== 12 && i === 0);  // 알 수 없으면 첫 표
-    if (isTarget) {
-      const filled = fillTable(t.text, names, dates, cloner);
-      xml = xml.slice(0, t.start) + filled + xml.slice(t.end);
-    }
+    const filled = fillTable(t.text, names, dates, cloner);
+    xml = xml.slice(0, t.start) + filled + xml.slice(t.end);
   }
 
   // 수령대장 파란 글씨(일차 헤더·안내문 등)를 모두 검정으로
