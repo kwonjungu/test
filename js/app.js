@@ -4,7 +4,7 @@ import {
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
 } from "./convert.js?v=31";
 import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=32";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=33";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=34";
 import { NEIS_API_KEY } from "./config.js?v=31";
 
 const $ = (id) => document.getElementById(id);
@@ -157,7 +157,15 @@ function loadGachonTemplates(get) {
 
 async function startApp() {
   applyOrgChrome();
-  await resolver.loadBundle();
+  // 명단 올리기는 자료 로드 전에도 받아 두고, 로드가 끝나면 처리(느린 망에서 업로드가 무시되던 문제)
+  const bundleReady = resolver.loadBundle();
+  const rf0 = $("rosterFile");
+  if (rf0) rf0.addEventListener("change", async e => {
+    setStatus("rosterStatus", "명단 읽는 중…", "");
+    await bundleReady.catch(() => {});
+    onRoster(e);
+  });
+  await bundleReady;
   resolver.loadProgramDb().then(info => {
     setStatus("dbStatus",
       `원DB 내장됨 — 참고 학교 ${info.schools}개 / 학급 ${info.classes}건`,
@@ -189,7 +197,6 @@ async function startApp() {
   // null-안전 바인딩 (기관별로 일부 버튼이 없을 수 있음)
   const bind = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
 
-  bind("rosterFile", "change", onRoster);
   bind("campSelect", "change", onCampSelect);
   bind("schoolSearchBtn", "click", onSchoolSearch);
   bind("schoolSearch", "keydown", e => { if (e.key === "Enter") onSchoolSearch(); });
