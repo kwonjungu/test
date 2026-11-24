@@ -3,8 +3,8 @@ import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
 } from "./convert.js?v=31";
-import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=31";
-import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=31";
+import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=32";
+import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=33";
 import { NEIS_API_KEY } from "./config.js?v=31";
 
 const $ = (id) => document.getElementById(id);
@@ -63,7 +63,9 @@ let gEquipTemplateBuf = null;     // 교구지급보고서(주)
 let gLectureTemplateBuf = null;   // 강의보고서(주/보조)
 let gWorkTemplateBuf = null;      // 업무보고서(안전)
 let gReportTemplateBuf = null;    // 결과보고서(보조, AI 추진의견)
-let gMealTemplateBuf = null;      // 식다과 수령대장(보조)
+let gMealTemplateBuf = null;      // 식다과 수령대장(보조) — 2일(8차시)용
+let gMeal3TemplateBuf = null;     // 식다과 수령대장 3일(12차시)용
+let gMeal4TemplateBuf = null;     // 식다과 수령대장 4일(12차시)용
 let gMaterialTemplateBuf = null;  // 교재교구 수령대장(보조)
 let gBannerTemplateBuf = null;    // 배너 pptx
 let gPledgeTemplateBuf = null;        // 안전관리 서약서(안전)
@@ -143,6 +145,8 @@ function loadGachonTemplates(get) {
   get("업무보고서양식.hwpx", b => gWorkTemplateBuf = b);
   get("결과보고서양식.hwpx", b => gReportTemplateBuf = b);
   get("식다과수령대장양식.hwpx", b => gMealTemplateBuf = b);
+  get("식다과수령대장양식_3일.hwpx", b => gMeal3TemplateBuf = b);
+  get("식다과수령대장양식_4일.hwpx", b => gMeal4TemplateBuf = b);
   get("교재교구수령대장양식.hwpx", b => gMaterialTemplateBuf = b);
   get("배너양식.pptx", b => gBannerTemplateBuf = b);
   // 안전(현장안전관리자) — hwpx로 변환된 양식 자동 작성
@@ -958,6 +962,15 @@ async function onDownloadChecklist() {
   }
 }
 
+// 지급신청서 산출내역용 반별 일정: [{ ampm, dates:[{m,d}], chasi }]
+function paySessionsOf(classes) {
+  return (classes || []).map(c => {
+    const st = c.settings || {};
+    return { ampm: /오후/.test(c.className) ? "오후" : "오전",
+             dates: (st.days || []).map(d => d.date).filter(Boolean), chasi: st.chasi || 0 };
+  });
+}
+
 const EDU_MAP = { "초저": "초등 저학년", "초고": "초등 고학년", "중등": "중등", "고등": "고등", "다문화": "다문화" };
 
 // 강사료 지급신청서 hwpx (보조강사용) — 캠프 1건당 1부, 오전+오후 합산
@@ -993,6 +1006,8 @@ async function onDownloadPay() {
     program: (c0.settings && c0.settings.program) || c0.program || "",
     school: c0.school || "",
     assistantTeacher: (c0.settings || {}).assistantTeacher || "",
+    affiliation: (c0.settings || {}).assistantTeacher ? askAffiliation((c0.settings || {}).assistantTeacher) : "",
+    sessions: paySessionsOf(lastClasses),
     eduTarget, payoutLines: lines, amount, lastDate, year: 2026
   });
   triggerDownload(blob, `강사료지급신청서_${ownerTag((c0.settings || {}).assistantTeacher)}.hwpx`);
@@ -1026,6 +1041,9 @@ async function onDownloadJuPay() {
   const blob = await buildPayApplicationHwpx(juPayTemplateBuf, {
     program: (c0.settings && c0.settings.program) || c0.program || "",
     school: c0.school || "",
+    mainTeacher: (c0.settings || {}).mainTeacher || "",
+    affiliation: (c0.settings || {}).mainTeacher ? askAffiliation((c0.settings || {}).mainTeacher) : "",
+    sessions: paySessionsOf(lastClasses),
     eduTarget, payoutLines: lines, amount, lastDate, year: 2026,
     slots: [
       " (오전) 6/21 100,000원 X 1학급 X 4차시",
@@ -1092,6 +1110,8 @@ async function onDownloadSafetyPay() {
   const blob = await buildSafetyPayHwpx(safetyPayTemplateBuf, {
     program: (c0.settings && c0.settings.program) || c0.program || "",
     school: c0.school || "",
+    name: nm, affiliation: nm ? askAffiliation(nm) : "",
+    sessions: paySessionsOf(lastClasses),
     eduTarget, payoutLines: lines, amount: total.toLocaleString(), lastDate
   });
   triggerDownload(blob, `안전단기근로자지급신청서_${ownerTag(nm)}.hwpx`);
@@ -1239,6 +1259,14 @@ function setupGachonUI(bind) {
   bind("gDlSafetyReport", "click", onGachonSafetyReport);
   bind("gDlSafetyChecklist", "click", onGachonChecklist);
   bind("gDlWork", "click", onGachonWork);
+  // 3-1 이수증 양식: 내려받을 파일명에 안전관리자 (소속_이름)을 넣는다(자리표시 "(본인 소속_이름)" 방지)
+  const cert = document.querySelector('a.dl-safety[href$="안전관리이수증양식.hwpx"]');
+  if (cert) cert.addEventListener("click", () => {
+    const nm = (lastClasses && lastClasses.length) ? ensureSafetyManager() : "";
+    if (!nm) return;
+    const aff = askAffiliation(nm);
+    cert.setAttribute("download", `3-1. ${G_PREFIX} 안전관리 이수증 (${[aff, nm].filter(Boolean).map(safeName).join("_")}).hwpx`);
+  });
 }
 
 // 가천대 버튼 활성화 갱신
@@ -1291,15 +1319,18 @@ function gFileName(doc, parts, ext = "hwpx") {
   const body = parts.filter(Boolean).map(safeName).join("_");
   return `${G_PREFIX} ${doc}(${body}).${ext}`;
 }
-// 강의·업무보고서 파일명의 (이름_소속) — 소속은 세션당 1회 입력받아 재사용
-let gAffiliation = "";
-function askAffiliation() {
-  if (!gAffiliation) {
-    const v = prompt("파일명 (이름_소속)에 들어갈 소속을 입력하세요.\n예) 디지털새싹 / OO초등학교 / OO회사", "");
-    gAffiliation = (v || "").trim();
+// 강의·업무보고서의 (이름_소속) — 소속은 사람마다 따로, 세션당 1회 입력받아 재사용
+const gAffiliations = {};
+function askAffiliation(name) {
+  const key = name || "";
+  if (!(key in gAffiliations)) {
+    const v = prompt(`${key ? key + " 선생님의 " : ""}소속을 입력하세요. (파일명과 서류의 소속 칸에 들어갑니다)\n예) OO초등학교 / OO회사`, "");
+    gAffiliations[key] = (v || "").trim();
   }
-  return gAffiliation;
+  return gAffiliations[key];
 }
+// 반 이름 짧게: "오전반" → "오전"
+function gClassTag(c) { return ((c && c.className) || "").replace(/반$/, ""); }
 
 // 1) 교구 지급 보고서 (주강사) — 클래스별
 async function onGachonEquip() {
@@ -1331,14 +1362,17 @@ async function onGachonMeal() {
   if (!lastClasses || !lastClasses.length || !gMealTemplateBuf) return;
   for (let i = 0; i < lastClasses.length; i++) {
     const c = lastClasses[i], st = c.settings || {};
-    const blob = await buildGachonMealHwpx(gMealTemplateBuf, {
+    // 운영 일수에 맞는 양식(날짜 열 수): 2일 이하 → 2일용, 3일 → 3일용, 4일 이상 → 4일용
+    const nDays = (st.days || []).filter(d => d && d.date).length;
+    const tpl = (nDays >= 4 && gMeal4TemplateBuf) || (nDays === 3 && gMeal3TemplateBuf) || gMealTemplateBuf;
+    const blob = await buildGachonMealHwpx(tpl, {
       program: st.program || c.program || "", school: c.school || "",
       names: c.realNames || [], mainTeacher: st.mainTeacher || "",
       assistantTeacher: st.assistantTeacher || "", days: st.days || []
     });
     triggerDownload(blob, gFileName("식다과 수령대장",
       [c.school, gCampName(st.program || c.program), st.assistantTeacher || rosterName,
-       lastClasses.length > 1 ? c.className : ""]));
+       gClassTag(c)]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -1354,7 +1388,7 @@ async function onGachonMaterial() {
     });
     triggerDownload(blob, gFileName("교재교구 수령대장",
       [c.school, gCampName(st.program || c.program), st.assistantTeacher || rosterName,
-       lastClasses.length > 1 ? c.className : ""]));
+       gClassTag(c)]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
 }
@@ -1374,7 +1408,7 @@ async function onGachonReport() {
     });
     triggerDownload(blob, gFileName("결과 보고서",
       [c.school, gCampName(st.program || c.program), st.assistantTeacher || rosterName,
-       lastClasses.length > 1 ? c.className : ""]));
+       gClassTag(c)]));
     if (i < lastClasses.length - 1) await sleep(350);
   }
   setStatus("convertStatus", Object.keys(opinions).length ? "결과 보고서 다운로드 완료 (AI 추진의견 포함)" : "결과 보고서 다운로드 완료 (AI 의견 생성 실패 — 빈칸)", "ok");
@@ -1395,11 +1429,12 @@ async function onGachonLecture(role) {
   // 전 클래스의 일자를 차시와 함께 모음(오전/오후 각 일자 = 1블록)
   const blocks = [];
   for (const c of lastClasses) blocks.push(...daysWithChasi(c.settings || {}));
+  const affiliation = askAffiliation(name);
   const blob = await buildGachonLectureHwpx(gLectureTemplateBuf, {
     program: st0.program || c0.program || "", school: c0.school || "",
-    name, role, days: blocks
+    name, role, days: blocks, affiliation
   });
-  triggerDownload(blob, `${G_PREFIX} 강의보고서 (${safeName(name)}_${safeName(askAffiliation() || rosterName)}).hwpx`);
+  triggerDownload(blob, `${G_PREFIX} 강의보고서 (${safeName(name)}_${safeName(affiliation || rosterName)}).hwpx`);
 }
 
 // 6) 업무 보고서 (안전관리자) — 캠프 1부, 안전 정산(20,000/시간, 반별 1일 한도 60,000)
@@ -1413,19 +1448,26 @@ async function onGachonWork() {
   const hours = total / SAFE_UNIT;                                 // 한도 적용 후 환산 시간(차시)
   const hoursTxt = Number.isInteger(hours) ? hours : hours.toFixed(1);
   const calcLine = `20,000원 X ${hoursTxt}시간 (반별 1일 한도 60,000원 적용) = ${total.toLocaleString()}원`;
+  const affiliation = askAffiliation(nm);
+  // 오전·오후를 한 안전관리자가 맡으면 모든 반의 일자를 날짜·시작 시각 순으로
+  const allDays = lastClasses.flatMap(c => ((c.settings || {}).days || []).filter(d => d && d.date))
+    .sort((a, b) => (a.date.m - b.date.m) || (a.date.d - b.date.d) || String(a.start).localeCompare(String(b.start)));
   const blob = await buildGachonWorkHwpx(gWorkTemplateBuf, {
     program: st0.program || c0.program || "", school: c0.school || "",
-    name: nm, days: (st0.days || []), totalAmount: total.toLocaleString(), rounds, calcLine
+    name: nm, days: allDays, totalAmount: total.toLocaleString(), rounds, calcLine, affiliation
   });
-  triggerDownload(blob, `${G_PREFIX} 업무보고서 (${safeName(nm)}_${safeName(askAffiliation() || rosterName)}).hwpx`);
+  triggerDownload(blob, `${G_PREFIX} 업무보고서 (${safeName(nm)}_${safeName(affiliation || rosterName)}).hwpx`);
 }
 
 // 3-2) 안전관리 서약서 (안전) — 캠프 1부, 프로그램·기간·학교·서약일(시작-2) 자동
 async function onGachonSafetyPledge() {
   if (!lastClasses || !lastClasses.length || !gPledgeTemplateBuf) return;
+  const nm = ensureSafetyManager();
+  if (nm === null) return;
   const c0 = lastClasses[0], st0 = c0.settings || {};
   const blob = await buildGachonSafetyPledgeHwpx(gPledgeTemplateBuf, {
-    program: st0.program || c0.program || "", school: c0.school || "", days: st0.days || []
+    program: st0.program || c0.program || "", school: c0.school || "", days: st0.days || [],
+    name: nm || ""
   });
   triggerDownload(blob, gFileName("안전관리서약서",
     [c0.school, gCampName(st0.program || c0.program), st0.safetyManager]));

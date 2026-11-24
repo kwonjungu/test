@@ -44,6 +44,48 @@ function replaceInRun(xml, contains, transform) {
     (m, t) => m.replace(`<hp:t>${t}</hp:t>`, `<hp:t>${xmlEsc(transform(t))}</hp:t>`));
 }
 
+// 텍스트 노드 안의 글자를 모두 바꾼다(한 run 안에 탭·여러 칸 공백이 섞여 있어도 됨).
+// 예: "신청자 :   권준구      (인)<hp:tab/>" 처럼 정확매칭이 안 되는 자리. oldText는 태그 이름·속성에 없는 글자여야 한다.
+function replaceAllText(xml, oldText, newText) {
+  if (!oldText || newText == null) return xml;
+  return xml.split(oldText).join(xmlEsc(newText));
+}
+
+// section 최상위 문단(<hp:p>…</hp:p>)의 [시작, 끝] 목록 (표 안 문단은 포함하지 않음)
+function topParas(xml) {
+  const base = xml.indexOf(">", xml.indexOf("<hs:sec")) + 1;
+  const re = /<hp:p\b[^>]*>|<\/hp:p>/g;
+  re.lastIndex = base;
+  const out = [];
+  let depth = 0, start = -1, m;
+  while ((m = re.exec(xml))) {
+    if (m[0] === "</hp:p>") {
+      depth--;
+      if (depth === 0) out.push([start, m.index + m[0].length]);
+    } else {
+      if (depth === 0) start = m.index;
+      depth++;
+    }
+  }
+  return out;
+}
+const plainText = (seg) => (seg.match(/<hp:t>[^<]*<\/hp:t>/g) || []).map(t => t.slice(6, -7)).join("");
+
+// marker 글자가 든 표에서 (col,row) 칸의 빈 run에 글자를 넣는다. 칸에 글자가 이미 있으면 그대로 둔다.
+function setEmptyCell(xml, marker, col, row, text) {
+  if (!text) return xml;
+  const mi = xml.indexOf(marker);
+  if (mi < 0) return xml;
+  const ts = xml.lastIndexOf("<hp:tbl", mi), te = xml.indexOf("</hp:tbl>", mi);
+  if (ts < 0 || te < 0) return xml;
+  let tbl = xml.slice(ts, te);
+  tbl = tbl.replace(/<hp:tc\b[\s\S]*?<\/hp:tc>/g, (tc) => {
+    if (!tc.includes(`<hp:cellAddr colAddr="${col}" rowAddr="${row}"/>`)) return tc;
+    return tc.replace(/<hp:run charPrIDRef="(\d+)"\/>/, (mm, cid) => `<hp:run charPrIDRef="${cid}"><hp:t>${xmlEsc(text)}</hp:t></hp:run>`);
+  });
+  return xml.slice(0, ts) + tbl + xml.slice(te);
+}
+
 // ---------- 공통 패키징 (대림대 hwpx.js와 동일 규칙) ----------
 async function packageHwpx(zip) {
   let hadScripts = false;
@@ -111,33 +153,75 @@ function fillDates(xml, days) {
   // 운영기간 (+시간 변형 먼저)
   xml = replaceText(xml, `2026년 ${pad2(f.date.m)}월 ${pad2(f.date.d)}일 ~ ${pad2(l.date.m)}월 ${pad2(l.date.d)}일`,
     `2026년 ${pad2(f.date.m)}월 ${pad2(f.date.d)}일 ~ ${pad2(l.date.m)}월 ${pad2(l.date.d)}일`); // no-op 보호
+  // 같은 run에 붙은 시간(결과보고서 ", 09:00~12:10", 교구지급 " 09:00~12:10")도 이 반의 실제 시간으로(오후반 대비)
+  // 식다과 3일·4일 템플릿의 "~ 06월 22일"/"~ 06월 23일"도 같은 규칙으로 맞춘 뒤 치환
+  xml = xml.replace(/(<hp:t>[^<]*2026년 06월 20일 ~ 06월 )2[2-9](일)/g, (m, a, b) => `${a}21${b}`);
   xml = replaceInRun(xml, "2026년 06월 20일 ~ 06월 21일",
-    (t) => t.replace(/2026년 06월 20일 ~ 06월 21일/, `2026년 ${pad2(f.date.m)}월 ${pad2(f.date.d)}일 ~ ${pad2(l.date.m)}월 ${pad2(l.date.d)}일`));
+    (t) => t.replace(/2026년 06월 20일 ~ 06월 21일/, `2026년 ${pad2(f.date.m)}월 ${pad2(f.date.d)}일 ~ ${pad2(l.date.m)}월 ${pad2(l.date.d)}일`)
+            .replace(/\d{1,2}:\d{2}\s*~\s*\d{1,2}:\d{2}/, t0));
   // 수령일시 "2026년 6월 20일 09:00~12:10" → 시작일+시간
   xml = replaceInRun(xml, "2026년 6월 20일 09:00",
     () => `2026년 ${f.date.m}월 ${f.date.d}일 ${t0} `);
-  // 식다과: 회차별 지급일 "(1회 지급일) 6월 20일 09:00~12:10", "(2회 지급일) 6월 21일 ..."
-  xml = replaceInRun(xml, "(1회 지급일) 6월 20일",
-    () => `(1회 지급일) ${f.date.m}월 ${f.date.d}일 ${t0} `);
-  if (ds[1]) {
-    const s = ds[1];
-    xml = replaceInRun(xml, "(2회 지급일) 6월 21일",
-      () => `(2회 지급일) ${s.date.m}월 ${s.date.d}일 ${fmtTime(s.start)}~${fmtTime(s.end)} `);
+  // 식다과: 회차별 지급일 "(N회 지급일) 6월 2X일 09:00~12:10" (2일·3일·4일 템플릿) → 날짜마다 채우고, 날짜가 모자라면 회차 표시만 남김
+  for (let n = 1; n <= 4; n++) {
+    const s = ds[n - 1];
+    xml = replaceInRun(xml, `(${n}회 지급일)`, () => s
+      ? `(${n}회 지급일) ${s.date.m}월 ${s.date.d}일 ${fmtTime(s.start)}~${fmtTime(s.end)} `
+      : `(${n}회 지급일) `);
   }
   // 교구지급 제출일 "2026. 06. 21." (마지막일)
   xml = replaceText(xml, `2026. ${pad2(6)}. ${pad2(21)}.`, `2026. ${pad2(l.date.m)}. ${pad2(l.date.d)}.`);
   return xml;
 }
 
-// 학생 실명 주입 (colAddr="1" rowAddr=9~28의 "홍길동" 플레이스홀더 교체, 남으면 비움)
+// 학생 명단 표("홍길동" 칸이 든 표)의 학생 행을 n개 이상으로 맞춘다.
+// 학생이 템플릿 행보다 많으면 마지막 학생 행을 복제해 붙이고(NO 이어 매김), 학생 행부터 표 끝까지의 행 높이를
+// 원래 합계 안에서 고르게 줄여 한 쪽에 들어가게 한다. 행 높이는 minH(약 4.8mm, 10pt 한 줄이 들어가는 높이) 아래로 내리지 않는다. 그보다 학생이 많으면(2일 약 32명, 3·4일 약 29명 넘게) 표가 길어져 다음 쪽으로 넘어간다(글자처럼 취급 표라 표 전체가 넘어감).
+function ensureStudentRows(xml, n, minH = 1350) {
+  const mi = xml.indexOf("<hp:t>홍길동</hp:t>");
+  if (mi < 0) return xml;
+  const ts = xml.lastIndexOf("<hp:tbl", mi), te = xml.indexOf("</hp:tbl>", mi);
+  if (ts < 0 || te < 0) return xml;
+  const tbl = xml.slice(ts, te);
+  const trs = [...tbl.matchAll(/<hp:tr>[\s\S]*?<\/hp:tr>/g)];
+  if (!trs.length) return xml;
+  let rows = trs.map(m => m[0]);
+  const prefix = tbl.slice(0, trs[0].index);
+  const suffix = tbl.slice(trs[trs.length - 1].index + trs[trs.length - 1][0].length);
+  const isStu = (tr) => (tr.match(/<hp:tc\b[\s\S]*?<\/hp:tc>/g) || [])
+    .some(tc => /colAddr="1"/.test(tc) && /<hp:t>홍길동<\/hp:t>/.test(tc));
+  const stu = rows.map((tr, i) => isStu(tr) ? i : -1).filter(i => i >= 0);
+  if (!stu.length || n <= stu.length) return xml;
+  const first = stu[0], last = stu[stu.length - 1];
+  const rowH = (tr) => +((tr.match(/<hp:cellSz width="\d+" height="(\d+)"\/>/) || [0, 0])[1]);
+  const oldTotal = rows.slice(first).reduce((acc, tr) => acc + rowH(tr), 0);
+  const clones = [];
+  for (let k = stu.length; k < n; k++) {
+    // 첫 칸(NO)의 숫자만 바꾼다
+    clones.push(rows[last].replace(/(<hp:tc\b[\s\S]*?<hp:t>)\d+(<\/hp:t>)/, (m, p1, p2) => p1 + (k + 1) + p2));
+  }
+  rows = rows.slice(0, last + 1).concat(clones, rows.slice(last + 1));
+  const cnt = rows.length - first;
+  const h = Math.max(minH, Math.floor(oldTotal / cnt));
+  rows = rows.map((tr, i) => {
+    tr = tr.replace(/rowAddr="\d+"/g, `rowAddr="${i}"`);
+    if (i >= first) tr = tr.replace(/(<hp:cellSz width="\d+" height=")\d+(")/g, (m, p1, p2) => p1 + h + p2);
+    return tr;
+  });
+  const newTotal = h * cnt;
+  const head = prefix.replace(/rowCnt="\d+"/, `rowCnt="${rows.length}"`)
+    .replace(/(<hp:sz width="\d+" widthRelTo="\w+" height=")(\d+)(")/, (m, p1, hh, p3) => `${p1}${+hh - oldTotal + newTotal}${p3}`);
+  return xml.slice(0, ts) + head + rows.join("") + suffix + xml.slice(te);
+}
+
+// 학생 실명 주입: 명단 표의 성명 칸(colAddr="1") "홍길동"을 위에서부터 차례로 교체, 남는 칸은 비움.
+// 학생이 템플릿 행(식다과 2일·교재교구 23행, 3일·4일 21행)보다 많으면 먼저 행을 늘린다(이름이 잘리지 않게).
 function fillReceiptNames(xml, names) {
+  xml = ensureStudentRows(xml, names.length);
   let idx = 0;
   return xml.replace(/<hp:tc\b[\s\S]*?<\/hp:tc>/g, (tc) => {
-    const a = tc.match(/colAddr="1" rowAddr="(\d+)"/);
-    if (!a) return tc;
-    const row = +a[1];
-    if (row < 9 || row > 28) return tc;
-    if (!/홍길동/.test(tc)) return tc;
+    if (!/colAddr="1" rowAddr="\d+"/.test(tc)) return tc;
+    if (!/<hp:t>홍길동<\/hp:t>/.test(tc)) return tc;
     const nm = names[idx] || "";
     idx++;
     return tc.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>홍길동<\/hp:t><\/hp:run>/,
@@ -257,8 +341,8 @@ export async function buildGachonReportHwpx(templateBuf, data) {
 }
 
 // ===== 5) 강의보고서 (주/보조강사) =====
-// 실적 4블록: 강의일자/횟수(1회)/강사료/산출내역(1회 X N시간 X 단가). 일자별로 채우고 남으면 비움.
-// data: { program, school, name, role:"주강사"|"보조강사", days, lastDate }
+// 실적 블록: 강의일자/횟수(1회)/강사료/산출내역(1회 X N시간 X 단가). 일자(반×일) 수만큼 블록을 만든다(1~4개 이상).
+// data: { program, school, name, affiliation, role:"주강사"|"보조강사", days }
 const LECTURE_UNIT = { "주강사": 75000, "보조강사": 45000 };
 
 // 프로그램명 표시용: "(초저) " 등 앞 괄호 접두를 뗀 이름
@@ -287,46 +371,51 @@ export async function buildGachonLectureHwpx(templateBuf, data) {
   const unit = LECTURE_UNIT[data.role] || 75000;
   const ds = (data.days || []).filter(d => d && d.date);
 
-  // 블록 키: 양식엔 "2026-06-28 09:00 ~ 06-28 12:10"(일자), "1회", "300,000"(강사료), "1회 X 4시간 X 75,000원 = 300,000원"
-  // 4개 블록을 순서대로 days로 치환. run 단위 부분치환으로 처리(각 블록 동일 텍스트라 순차 교체).
   const fmtDate = (d) => `2026-${pad2(d.date.m)}-${pad2(d.date.d)} ${fmtTime(d.start)} ~ ${pad2(d.date.m)}-${pad2(d.date.d)} ${fmtTime(d.end)}`;
   // 일자별 차시(시간) — days[i].chasi 우선, 없으면 시계시간 반올림(최소 1)
   const blockHours = ds.map(d => d.chasi || Math.round(hoursBetween(d.start, d.end)) || 4);
   const blockAmts = blockHours.map(h => h * unit);   // 시간당 단가 × 차시
-  // 순차 교체 헬퍼: 같은 플레이스홀더 텍스트를 앞에서부터 1개씩 교체
-  function seqReplace(text, makeNew) {
-    let i = 0;
-    return xml.replace(new RegExp(`<hp:t>${rgEsc(text)}</hp:t>`, "g"), (m) => {
-      const r = makeNew(i, m); i++; return r;
-    });
-  }
-  // 일자 (4블록 동일)
-  xml = seqReplace("2026-06-28 09:00 ~ 06-28 12:10", (i) =>
-    i < ds.length ? `<hp:t>${xmlEsc(fmtDate(ds[i]))}</hp:t>` : `<hp:t></hp:t>`);
-  // 산출내역 "1회 X 4시간 X 75,000원 = 300,000원"
-  xml = seqReplace("1회 X 4시간 X 75,000원 = 300,000원", (i) =>
-    i < ds.length
-      ? `<hp:t>1회 X ${blockHours[i]}시간 X ${unit.toLocaleString()}원 = ${blockAmts[i].toLocaleString()}원</hp:t>`
-      : `<hp:t></hp:t>`);
-  // 강사료(청구액) 칸 "300,000" (블록별) — 금액으로 교체, 남으면 비움
-  let pi = 0;
-  xml = xml.replace(/<hp:t>300,000<\/hp:t>/g, () =>
-    pi < ds.length ? `<hp:t>${blockAmts[pi++].toLocaleString()}</hp:t>` : (pi++, `<hp:t></hp:t>`));
-  // 학교/역할/프로그램명(강의내용 칸): "한솔초"·"주강사"
-  if (data.school) xml = replaceInRun(xml, "한솔초", () => ` ${data.school} `);
-  if (data.role) xml = xml.replace(/<hp:t>주강사<\/hp:t>/g, `<hp:t>${xmlEsc(data.role)}</hp:t>`);
-  // 강의내용 칸의 박힌 값 교체: 역할 줄, 프로그램명(양식 기본 "알고리즘 타고 건강으로 GO!"), 업무 내용
-  if (data.role) xml = replaceText(xml, "2. 역할 : 주강사", `2. 역할 : ${data.role}`);
   const progNm = progDisplay(data.program);
-  if (progNm) xml = replaceText(xml, "알고리즘 타고 건강으로 GO!", progNm);
-  xml = replaceText(xml,
-    "프로그램 운영 주강사, 아이들의 컴퓨팅 사고력 향상을 위한 커리큘럼 운영",
-    activityLine(data.program, data.role));
+
+  // "강사 활용 실적" 블록(제목 문단 + 표 문단)을 운영 일수(블록 수)만큼만 둔다.
+  // 템플릿엔 4블록이 [제목, 표, 빈 문단] 순서로 있다 → 1블록을 원본으로 n개를 새로 만들어 4블록 자리를 통째로 바꾼다.
+  const ps = topParas(xml);
+  const heads = ps.map((p, i) => i).filter(i => {
+    const seg = xml.slice(ps[i][0], ps[i][1]);
+    return !seg.includes("<hp:tbl") && plainText(seg).includes("강사 활용 실적");
+  });
+  if (heads.length) {
+    const h1 = heads[0], hl = heads[heads.length - 1];
+    const headP = xml.slice(ps[h1][0], ps[h1][1]);
+    const tblP = xml.slice(ps[h1 + 1][0], ps[h1 + 1][1]);
+    const spacer = heads.length > 1 ? xml.slice(ps[h1 + 2][0], ps[h1 + 2][1]) : "";
+    const n = Math.max(1, ds.length);
+    const blocks = [];
+    for (let i = 0; i < n; i++) {
+      const has = i < ds.length;
+      let hp = headP.replace(/강사 활용 실적\s*[-–]\s*\d+\s*/, `강사 활용 실적 - ${i + 1}`);
+      let t = tblP;
+      t = replaceText(t, "2026-06-28 09:00 ~ 06-28 12:10", has ? fmtDate(ds[i]) : "");
+      t = replaceText(t, "1회 X 4시간 X 75,000원 = 300,000원",
+        has ? `1회 X ${blockHours[i]}시간 X ${unit.toLocaleString()}원 = ${blockAmts[i].toLocaleString()}원` : "");
+      t = replaceText(t, "300,000", has ? blockAmts[i].toLocaleString() : "");
+      if (!has) t = replaceText(t, "1회", "");
+      if (data.school) t = replaceInRun(t, "한솔초", () => ` ${data.school} `);
+      if (data.role) t = replaceText(t, "2. 역할 : 주강사", `2. 역할 : ${data.role}`);
+      if (progNm) t = replaceText(t, "알고리즘 타고 건강으로 GO!", progNm);
+      t = replaceText(t, "프로그램 운영 주강사, 아이들의 컴퓨팅 사고력 향상을 위한 커리큘럼 운영",
+        activityLine(data.program, data.role));
+      blocks.push(hp + t);
+    }
+    xml = xml.slice(0, ps[h1][0]) + blocks.join(spacer) + xml.slice(ps[hl + 1][1]);
+  }
   // 총 지급 신청액 "1,200,000 원"(' 원'까지 한 run) → 부분치환
   const grand = blockAmts.reduce((a, b) => a + b, 0);
-  xml = replaceInRun(xml, "1,200,000", (t) => t.replace(/1,200,000/, grand.toLocaleString()));
-  // 신청자 성명 "권준구"(2곳: 개인정보 성명 + 신청자)
-  if (data.name) xml = replaceText(xml, "권준구", data.name);
+  xml = replaceInRun(xml, "1,200,000", (t) => t.replace(/1,200,000/, grand ? grand.toLocaleString() : ""));
+  // 성명 "권준구"(강사 정보 성명 칸 + 신청자 줄). 신청자 줄은 공백·탭과 한 run이라 글자 단위로 바꾼다.
+  xml = replaceAllText(xml, "권준구", data.name || "");
+  // 강사 정보: 소속(사람마다 입력받은 값), 직급은 사이트가 모르는 값이라 비움
+  xml = setEmptyCell(xml, "은행/계좌번호", 3, 4, data.affiliation || "");
   // 신청일자 "2026\n년    6월  28일" → 마지막일. run 분리되어 있어 월/일만 치환
   if (ds.length) {
     const l = ds[ds.length - 1].date;
@@ -338,23 +427,30 @@ export async function buildGachonLectureHwpx(templateBuf, data) {
 }
 
 // ===== 6) 업무보고서 (안전관리자) =====
-// 안전: 20,000원/시간(회), 4회를 1블록에 합산. 한도 표기 유지.
-// data: { program, school, name, days, totalAmount, lastDate }
+// 안전: 20,000원/시간(회), 활용실적 1블록에 합산. 한도 표기 유지. 끝에 개인정보 활용 동의서·첨부서류 쪽(최신 양식).
+// data: { program, school, name, affiliation, days, totalAmount, rounds, calcLine }
 export async function buildGachonWorkHwpx(templateBuf, data) {
   const { zip, path } = await loadSection(templateBuf);
   let xml = await zip.file(path).async("string");
   const ds = (data.days || []).filter(d => d && d.date);
 
-  // 활용실적 1블록: 일자 2줄(오전/오후 범위), 횟수(4회), 청구액(240,000), 산출(4회 X 4시간 X 20,000원 = 240,000원)
-  if (ds.length) {
-    const f = ds[0].date, l = ds[ds.length - 1].date;
-    // 일자 범위 "2026-06-28 09:00 ~ 06-29 12:10" (오전), 오후줄 "2026-06-28 13:00 ~ 06-29 16:10"
-    xml = replaceInRun(xml, "2026-06-28 09:00 ~ 06-29 12:10",
-      () => `2026-${pad2(f.m)}-${pad2(f.d)} ${fmtTime(ds[0].start)} ~ ${pad2(l.m)}-${pad2(l.d)} ${fmtTime(ds[ds.length-1].end)}`);
+  // 일자 칸: 템플릿엔 지난 기수 일자 문단 2개("2026-06-28 09:00 ~ 06-29 12:10", "2026-06-28 13:00 ~ 06-29 16:10").
+  // 첫 문단을 원본으로 운영 일수만큼 한 줄씩 만들고 나머지 문단은 지운다.
+  const ci = xml.indexOf("2026-06-28 09:00 ~ 06-29 12:10");
+  if (ci >= 0) {
+    const ss = xml.lastIndexOf("<hp:subList", ci), se = xml.indexOf("</hp:subList>", ci);
+    const inner0 = xml.indexOf(">", ss) + 1;
+    const cell = xml.slice(inner0, se);
+    const firstP = (cell.match(/<hp:p\b[\s\S]*?<\/hp:p>/) || [""])[0];
+    const lines = ds.length
+      ? ds.map(d => `2026-${pad2(d.date.m)}-${pad2(d.date.d)} ${fmtTime(d.start)} ~ ${pad2(d.date.m)}-${pad2(d.date.d)} ${fmtTime(d.end)}`)
+      : [""];
+    const newCell = lines.map(s => replaceText(firstP, "2026-06-28 09:00 ~ 06-29 12:10", s)).join("");
+    xml = xml.slice(0, inner0) + newCell + xml.slice(se);
   }
-  // 산출내역 — app에서 계산한 calcLine로 통째 교체 (예: "8회 X 20,000원 = 160,000원 (1일 한도 60,000원)")
+  // 산출내역 — app에서 계산한 calcLine로 통째 교체 (예: "20,000원 X 6시간 (반별 1일 한도 60,000원 적용) = 120,000원")
   if (data.calcLine) xml = replaceInRun(xml, "4회 X 4시간 X 20,000원 = 240,000원", () => data.calcLine);
-  // 금액 — 총 청구액/총 지급신청액 "240,000"(청구액 칸, 총액 칸 2곳)
+  // 금액 — 청구액 칸 " 240,000원", 총액 칸 "240,000원"
   if (data.totalAmount) {
     xml = replaceInRun(xml, "240,000원", (t) => t.replace(/240,000/, data.totalAmount));
     xml = xml.replace(/<hp:t>240,000<\/hp:t>/g, `<hp:t>${xmlEsc(data.totalAmount)}</hp:t>`);
@@ -362,11 +458,13 @@ export async function buildGachonWorkHwpx(templateBuf, data) {
   // 횟수 "4회"(청구 횟수 칸) → 실제 회차 수
   if (data.rounds) xml = xml.replace(/<hp:t>4회<\/hp:t>/g, `<hp:t>${xmlEsc(String(data.rounds))}회</hp:t>`);
   if (data.school) xml = replaceInRun(xml, "한솔초", () => ` ${data.school} `);
-  if (data.name) xml = replaceText(xml, "권준구", data.name);
-  // 내용 칸의 박힌 값 교체: 프로그램명(양식 기본 "알고리즘 타고 건강으로 GO!") + 역할 오타 보정
+  // 성명 "권준구"(개인 정보 성명 칸 + "신청자 :            권준구  (인)" 줄) — 공백 폭과 상관없이 글자 단위로
+  xml = replaceAllText(xml, "권준구", data.name || "");
+  xml = setEmptyCell(xml, "은행/계좌번호", 3, 4, data.affiliation || "");
+  // 내용 칸의 박힌 값 교체: 프로그램명(양식 기본 "알고리즘 타고 건강으로 GO!")
   const progNm = progDisplay(data.program);
   if (progNm) xml = replaceText(xml, "알고리즘 타고 건강으로 GO!", progNm);
-  xml = replaceText(xml, "2. 역할 : 전관리자", "2. 역할 : 안전관리자");
+  xml = replaceText(xml, "2. 역할 : 전관리자", "2. 역할 : 안전관리자");   // 옛 템플릿 대비
   if (ds.length) {
     const l = ds[ds.length - 1].date;
     xml = replaceInRun(xml, "년    월    일", () => `년  ${l.m}  월  ${l.d}  일`);
@@ -378,8 +476,9 @@ export async function buildGachonWorkHwpx(templateBuf, data) {
 
 // ===== 3-2) 안전관리 서약서 =====
 // 자리표시자: "프로그램명을 작성해주세요", "2026년"+" 00월 00일 ~ 00월 00일 / 학교 및 기관명"(한 run),
-//             서약일 "2026. 00. 00." (시작일 전 2일). 현장안전담당 성명은 자필 서명이라 비움.
-// data: { program, school, days }
+//             서약일 "2026. 00. 00." (시작일 전 2일). 표의 현장안전담당 성명 칸 = data.name(안전관리자),
+//             서명란은 자필 서명이라 비움.
+// data: { program, school, days, name }
 export async function buildGachonSafetyPledgeHwpx(templateBuf, data) {
   const { zip, path } = await loadSection(templateBuf);
   let xml = await zip.file(path).async("string");
@@ -395,6 +494,12 @@ export async function buildGachonSafetyPledgeHwpx(templateBuf, data) {
   } else if (data.school) {
     xml = replaceInRun(xml, "학교 및 기관명", (t) => t.replace("학교 및 기관명", data.school));
   }
+  // 현장안전담당 줄: 성명 칸 "안전관리자 작성"(첫째) → 안전관리자 이름, 연락처 칸 "안전관리자 작성"(둘째) → 빈칸
+  let k = 0;
+  xml = xml.replace(/<hp:t>안전관리자 작성<\/hp:t>/g, () => (k++ === 0)
+    ? `<hp:t>${xmlEsc(data.name || "")}</hp:t>` : "<hp:t></hp:t>");
+  // 양식 안내문 "※ 현장안전담당이 2명 이상일 경우 … (제출 시 해당 문구는 삭제)" 지움(문단 자리는 남김)
+  xml = xml.replace(/<hp:t>※ 현장안전담당이 2명 이상일 경우[^<]*(?:<hp:lineBreak\/>[^<]*)*<\/hp:t>/g, "<hp:t></hp:t>");
   zip.file(path, xml);
   return packageHwpx(zip);
 }
@@ -444,7 +549,10 @@ export async function buildGachonChecklistHwpx(templateBuf, data) {
   }
   if (data.name) {
     xml = xml.replace(/점검책임자 :\s+/g, `점검책임자 : ${xmlEsc(data.name)}  `);   // 운영 전
-    xml = xml.replace(/점검자\s*\(인\)/g, `점검자 ${xmlEsc(data.name)} (인)`);        // 운영 후
+    xml = xml.replace(/점검자\s*\(인\)/g, `점검자 ${xmlEsc(data.name)} (인)`);        // 운영 후(한 run일 때)
+    // 운영 후 "점검자"·공백·"(인)"이 run으로 나뉜 양식: 점검자 뒤 공백 run에 이름을 넣는다
+    xml = xml.replace(/(점검자<\/hp:t><\/hp:run>(?:<hp:run charPrIDRef="\d+"><hp:t> <\/hp:t><\/hp:run>)?<hp:run charPrIDRef="\d+"><hp:t>)\s{2,}(<\/hp:t>)/,
+      (m, a, b) => `${a}  ${xmlEsc(data.name)}  ${b}`);
   }
   zip.file(path, xml);
   return packageHwpx(zip);

@@ -148,7 +148,7 @@ function makeBlackCloner(header) {
       let clone = block.replace(`id="${cid}"`, `id="${newId}"`);
       clone = /\bheight="\d+"/.test(clone) ? clone.replace(/\bheight="\d+"/, `height="${h}"`)
                                            : clone.replace(/(<hh:charPr id="\d+")/, `$1 height="${h}"`);
-      header.xml = header.xml.replace(block, block + clone)
+      header.xml = header.xml.replace("</hh:charProperties>", clone + "</hh:charProperties>")  // 목록 맨 끝(한글은 id 순서로 찾음)
         .replace(/(<hh:charProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
       cache[key] = newId;
       return newId;
@@ -165,7 +165,7 @@ function makeBlackCloner(header) {
         .replace(/<hh:align\b[^>]*\/>/, '<hh:align horizontal="LEFT" vertical="BASELINE"/>')
         .replace(/<hh:lineSpacing type="[^"]*" value="\d+" unit="([^"]*)"\/>/g, '<hh:lineSpacing type="PERCENT" value="160" unit="$1"/>')
         .replace(/<hc:intent value="-?\d+" unit="([^"]*)"\/>/g, '<hc:intent value="0" unit="$1"/>');
-      header.xml = header.xml.replace(m[0], m[0] + clone)
+      header.xml = header.xml.replace("</hh:paraProperties>", clone + "</hh:paraProperties>")  // 목록 맨 끝
         .replace(/(<hh:paraProperties itemCnt=")(\d+)(")/, (mm, a, n, b) => a + (+n + 1) + b);
       cache[key] = newId;
       return newId;
@@ -507,7 +507,8 @@ function expandMasterReportRounds(xml, days) {
   const secm = xml.match(/<hs:sec\b[^>]*>/);
   const els = topLevelEls(xml, secm ? secm.index + secm[0].length : 0);
   const e2 = els.find(e => /2회차 결과보고/.test(e.text));
-  const gisa = els.find(e => /3\. 기타 운영사항/.test(e.text));
+  // 최신 양식은 회차 블록 뒤에 "2. 프로그램 운영결과(학부모 특강)" 절이 있어, 회차 블록 끝은 그 앞
+  const gisa = els.find(e => /학부모 특강/.test(e.text)) || els.find(e => /3\. 기타 운영사항/.test(e.text));
   if (!e2 || !gisa || e2.start >= gisa.start) return xml;
   const b2 = e2.start, gs = gisa.start;
   const block2 = xml.slice(b2, gs);   // 회차2 표 + "1. 프로그램 운영결과" + 사진표 + 사이 빈 단락
@@ -724,119 +725,203 @@ export async function buildCaseBookHwpx(templateBuf, data) {
   return packageHwpx(zip);
 }
 
-// 지급신청서 공통: 프로그램/교육장소/교육대상/산출내역/지급액 채우기
-// data: { program, school, eduTarget, payoutLines:[..], amount:"540,000", slots:[..], amountSlot }
-function fillPayBody(xml, cloner, data) {
-  // 드롭다운 메모 비우기
-  xml = xml.replace(/<hp:t>해당 프로그램명 작성<\/hp:t>/g, "<hp:t></hp:t>");
-  xml = xml.replace(/<hp:t>\((?:기본|특화|AI특화)\/[^<]*<\/hp:t>/g, "<hp:t></hp:t>");
-
-  if (data.program) {
-    // "해당 프로그램 복사하여 붙여넣기" 뒤에 필드컨트롤(<hp:ctrl>)이 붙어 run이 안 닫힘 →
-    // run 여는 부분만 매칭해 charPr 검정 + 텍스트 교체(뒤 ctrl 보존)
-    let done = false;
-    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>해당 프로그램 복사하여 붙여넣기<\/hp:t>/g,
-      (m, cid) => { done = true; return `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.program)}</hp:t>`; });
-    if (!done) xml = fillFieldBlack(xml, cloner, "해당 프로그램 복사하여 붙여넣기", data.program);
+// ===== 지급신청서(주강사·보조강사·안전) 공통 =====
+// 표에서 라벨 칸(<hp:t>label</hp:t>) 바로 다음 칸(<hp:tc>)의 위치 [ns, ne)
+function cellAfterLabel(xml, label) {
+  const li = xml.indexOf(`<hp:t>${label}</hp:t>`);
+  if (li < 0) return null;
+  const le = xml.indexOf("</hp:tc>", li);
+  const ns = xml.indexOf("<hp:tc", le);
+  const ne = xml.indexOf("</hp:tc>", ns);
+  if (le < 0 || ns < 0 || ne < 0) return null;
+  return [ns, ne + 8];
+}
+// 라벨 다음 칸의 글자를 text로(첫 글자 노드에 넣고 나머지 글자 노드는 비움). 서식(run charPr)은 그대로.
+function setCellText(xml, label, text) {
+  const r = cellAfterLabel(xml, label);
+  if (!r) return xml;
+  let tc = xml.slice(r[0], r[1]);
+  let first = true;
+  const v = xmlEsc(text || "");
+  if (/<hp:t>[^<]*<\/hp:t>/.test(tc)) {
+    tc = tc.replace(/<hp:t>[^<]*<\/hp:t>/g, () => { const o = first ? `<hp:t>${v}</hp:t>` : "<hp:t></hp:t>"; first = false; return o; });
+  } else if (v) {
+    tc = tc.replace(/<hp:run charPrIDRef="(\d+)"\/>/, (m, cid) => `<hp:run charPrIDRef="${cid}"><hp:t>${v}</hp:t></hp:run>`);
   }
-  if (data.school) xml = fillFieldBlack(xml, cloner, " 캠프가 진행되는 학교명", " " + data.school);
-  if (data.eduTarget) xml = fillFieldBlack(xml, cloner, " 초등 저학년/초등 고학년/중등/고등/다문화", " " + data.eduTarget);
-
-  // 산출내역: 템플릿 예시 슬롯 → 실제 줄, 남는 슬롯 비움
-  const lines = data.payoutLines || [];
-  (data.slots || []).forEach((slot, i) => {
-    if (i < lines.length) xml = fillFieldBlack(xml, cloner, slot, " " + lines[i]);
-    else xml = xml.replace(new RegExp(`<hp:t>${rgEsc(slot)}</hp:t>`, "g"), "<hp:t></hp:t>");
-  });
-  if (data.amount && data.amountSlot) xml = fillFieldBlack(xml, cloner, data.amountSlot, ` ${data.amount}원`);
+  return xml.slice(0, r[0]) + tc + xml.slice(r[1]);
+}
+// 라벨 다음 칸(산출내역)의 단락을 lines 줄 수만큼 다시 만든다. 첫 글자 단락의 서식을 모든 줄에 쓴다.
+// note가 있으면 마지막 줄 뒤에 원래 "(1일 한도 …)" 단락 서식으로 덧붙인다.
+function setCellLines(xml, label, lines, note) {
+  const r = cellAfterLabel(xml, label);
+  if (!r) return xml;
+  const tc = xml.slice(r[0], r[1]);
+  const so = tc.indexOf(">", tc.indexOf("<hp:subList")) + 1, se = tc.lastIndexOf("</hp:subList>");
+  if (so <= 0 || se < 0) return xml;
+  const paras = tc.slice(so, se).match(/<hp:p\b[\s\S]*?<\/hp:p>/g) || [];
+  const base = paras.find(p => /<hp:t>[^<]+<\/hp:t>/.test(p)) || paras[0];
+  if (!base) return xml;
+  const notePara = paras.find(p => /1일 한도/.test(p)) || base;
+  const mk = (para, t) => {
+    let first = true;
+    let o = para.replace(/<hp:t>[^<]*<\/hp:t>/g, () => { const s = first ? `<hp:t>${xmlEsc(t)}</hp:t>` : "<hp:t></hp:t>"; first = false; return s; });
+    if (first) o = o.replace(/<hp:run charPrIDRef="(\d+)"\/>/, (m, cid) => `<hp:run charPrIDRef="${cid}"><hp:t>${xmlEsc(t)}</hp:t></hp:run>`);
+    return o;
+  };
+  let body = (lines.length ? lines : [""]).map(t => mk(base, t)).join("");
+  if (note) body += mk(notePara, note);
+  return xml.slice(0, r[0]) + tc.slice(0, so) + body + tc.slice(se) + xml.slice(r[1]);
+}
+// 대상자 이름·소속을 모든 칸에(인적사항 표, 동의서 성명, 신청 서명란, 이력서 성명·소속 및 직위).
+// 모르는 값은 빈칸으로 둔다(자리표시 "OO초등학교 / 교사"나 지난 기수 이름이 남지 않게).
+function fillPayPerson(xml, name, aff) {
+  const nm = xmlEsc(name || ""), af = xmlEsc(aff || "");
+  xml = setCellText(xml, "이름", name ? " " + name : " ");
+  xml = setCellText(xml, "소속", aff ? " " + aff : " ");
+  xml = setCellText(xml, "성 명", name || "");
+  xml = setCellText(xml, "소속 및 직위", aff || "");
+  // 동의서 "성 명 :   ○○○  (서명)"
+  xml = xml.replace(/<hp:t>성 명 :[^<]*<\/hp:t>/g, name ? `<hp:t>성 명 : ${nm}  </hp:t>` : "<hp:t>성 명 :        </hp:t>");
+  // 신청 서명란 "소속 :" / "성명 :" 다음 run
+  xml = xml.replace(/(<hp:t>소속 :<\/hp:t><\/hp:run><hp:run charPrIDRef="\d+"><hp:t>)[^<]*(<\/hp:t>)/g,
+    (m, a, b) => a + (aff ? ` ${af}` : "      ") + b);
+  xml = xml.replace(/(<hp:t>성명 :<\/hp:t><\/hp:run><hp:run charPrIDRef="\d+"><hp:t>)[^<]*\(서명\)(<\/hp:t>)/g,
+    (m, a, b) => a + (name ? ` ${nm}            (서명)` : "             (서명)") + b);
   return xml;
 }
+// "12/5~6", "11/30~12/1", 하루면 "12/5"
+function dateRangeTxt(ds) {
+  if (!ds.length) return "";
+  const f = ds[0], l = ds[ds.length - 1];
+  if (f.m === l.m && f.d === l.d) return `${f.m}/${f.d}`;
+  return f.m === l.m ? `${f.m}/${f.d}~${l.d}` : `${f.m}/${f.d}~${l.m}/${l.d}`;
+}
+const numTxt = (n) => Number.isInteger(n) ? String(n) : n.toFixed(1);
+// data.sessions = [{ ampm:"오전"|"오후", dates:[{m,d}], chasi }] (반별). 없으면 null
+function paySessions(data) {
+  const ss = (data.sessions || []).map(s => ({
+    ampm: s.ampm || "오전", chasi: +s.chasi || 0,
+    dates: (s.dates || []).filter(Boolean).slice().sort((a, b) => a.m - b.m || a.d - b.d)
+  })).filter(s => s.dates.length);
+  return ss.length ? ss : null;
+}
+// 머리말이 옛 양식(2025년도)이면 2026년도로
+function fixPayCommon(xml) {
+  return replaceAllText(xml, "2025년도 디지털새싹 사업", "2026년도 디지털새싹 사업");
+}
 
-// 외부 전문가 기술 활용비 지급신청서
-//  · 주강사료: 사용자 완성본(마스터) 기준 — 박힌값(노벨/증안/초등 저학년/산출 75,000·8차시/금액 1,200,000/날짜) 치환
-//  · 보조강사료: 완성본 미제공 → 기존 자리표시자 양식 유지
-// data: { program, school, eduTarget, payoutLines, amount, lastDate, slots, amountSlot, year }
-const JUPAY_SLOTS = [" (오전) 6/21 75,000원 X 1학급 X 8차시", " (오후) 6/21 75,000원 X 1학급 X 8차시"];
+// 외부 전문가 기술 활용비 지급신청서 (주강사 1-2 / 보조강사 2-2) — 사용자 완성본(마스터) 기준
+// data: { program, school, eduTarget, payoutLines, amount, lastDate,
+//         name | mainTeacher | assistantTeacher, affiliation, sessions }
+//  · 산출내역: sessions가 있으면 반별 기간으로 직접 만든다
+//      주강사 "(오후) 12/5~6 75,000원 X 1학급 X 8차시", 보조 "(오후) 12/5~6 45,000원 X 4차시 X 2회"
+//    없으면 payoutLines를 그대로 쓴다.
 const JUPAY_AMT = " 1,200,000원";
-const ASSIST_SLOTS = [" (오전) 6/20~21 45,000원 X 4차시 X 2회", " (오후) 6/20~21 45,000원 X 4차시 X 2회"];
 const ASSIST_AMT = " 720,000원";
 const ASSIST_EDU = " 초등 저학년/초등 고학년/중등/고등/다문화";
 export async function buildPayApplicationHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
+  const isAssist = xml.includes("■ 보조강사");
+  const ss = paySessions(data);
+  const UNIT = isAssist ? 45000 : 75000;
 
-  if (xml.includes(M.program) && xml.includes("■ 보조강사")) {
-    // ── 보조강사료 완성본 마스터 ── 산출 "45,000원 X N차시 X N회", 금액 720,000, 성명 원종민
-    if (data.program) xml = replaceAllText(xml, M.program, data.program);
-    if (data.school) {                          // 완성본은 학교를 자리표시자로 비워둠
-      xml = replaceAllText(xml, M.school, data.school);
-      xml = replaceAllText(xml, " 캠프가 진행되는 학교명", " " + data.school);
-    }
-    if (data.eduTarget) xml = replaceAllText(xml, ASSIST_EDU, " " + data.eduTarget);
-    if (data.assistantTeacher) xml = replaceAllText(xml, M.assist, data.assistantTeacher);
-    const lines = data.payoutLines || [];
-    ASSIST_SLOTS.forEach((slot, i) => {
-      xml = (i < lines.length) ? replaceAllText(xml, slot, " " + lines[i]) : replaceAllText(xml, slot, "");
+  let lines = data.payoutLines || [];
+  let amount = data.amount;
+  if (ss) {
+    let total = 0;
+    lines = ss.map(s => {
+      total += UNIT * s.chasi;
+      if (isAssist) {
+        const nd = s.dates.length;
+        return `(${s.ampm}) ${dateRangeTxt(s.dates)} ${UNIT.toLocaleString()}원 X ${numTxt(s.chasi / nd)}차시 X ${nd}회`;
+      }
+      return `(${s.ampm}) ${dateRangeTxt(s.dates)} ${UNIT.toLocaleString()}원 X 1학급 X ${s.chasi}차시`;
     });
-    if (data.amount) xml = replaceAllText(xml, ASSIST_AMT, " " + data.amount + "원");
-    if (data.lastDate) xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, data.lastDate);
-    zip.file(path, xml);
-    return packageHwpx(zip);
+    amount = total.toLocaleString();
   }
 
-  if (xml.includes(M.program)) {
-    // ── 주강사료 완성본 마스터 ──
-    if (data.program) xml = replaceAllText(xml, M.program, data.program);
-    if (data.school) xml = replaceAllText(xml, M.school, data.school);
-    if (data.eduTarget) xml = replaceAllText(xml, " 초등 저학년", " " + data.eduTarget);
-    const lines = data.payoutLines || [];
-    JUPAY_SLOTS.forEach((slot, i) => {
-      xml = (i < lines.length) ? replaceAllText(xml, slot, " " + lines[i])
-                               : replaceAllText(xml, slot, "");
-    });
-    if (data.amount) xml = replaceAllText(xml, JUPAY_AMT, " " + data.amount + "원");
-    if (data.lastDate) xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, data.lastDate);
-    zip.file(path, xml);
-    return packageHwpx(zip);
+  xml = fixPayCommon(xml);
+  if (data.program) xml = replaceAllText(xml, M.program, data.program);
+  if (data.school) {
+    xml = replaceAllText(xml, M.school, data.school);
+    xml = replaceAllText(xml, " 캠프가 진행되는 학교명", " " + data.school);   // 보조 완성본은 학교를 자리표시로 둠
   }
+  if (data.eduTarget) {
+    xml = replaceAllText(xml, ASSIST_EDU, " " + data.eduTarget);
+    if (!isAssist) xml = replaceAllText(xml, " 초등 저학년", " " + data.eduTarget);
+  }
+  xml = setCellLines(xml, "산출내역", lines.map(t => " " + t.trim()));
+  if (amount) xml = replaceAllText(xml, isAssist ? ASSIST_AMT : JUPAY_AMT, " " + amount + "원");
+  if (data.lastDate) xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, data.lastDate);
+  const name = data.name || (isAssist ? data.assistantTeacher : data.mainTeacher) || "";
+  xml = fillPayPerson(xml, name, data.affiliation || "");
 
-  // ── 보조강사료 기존 양식(자리표시자) ──
-  const header = { xml: await zip.file("Contents/header.xml").async("string") };
-  const cloner = makeBlackCloner(header);
-  const slots = data.slots || [
-    " (오전) 6/21 60,000원 X 1학급 X 4차시",
-    " (오후) 6/21 60,000원 X 1학급 X 4차시",
-    " (오전) 6/28 60,000원 X 1학급 X 4차시"
-  ];
-  xml = fillPayBody(xml, cloner, { ...data, slots, amountSlot: data.amountSlot || " N00,000원" });
-  if (data.lastDate) {
-    xml = xml.replace(/<hp:run charPrIDRef="(\d+)"><hp:t>2026년 #월 #일<\/hp:t>/g,
-      (m, cid) => `<hp:run charPrIDRef="${cloner.black(cid)}"><hp:t>${xmlEsc(data.lastDate)}</hp:t>`);
-    xml = xml.replace(/2026년 #월 #일/g, xmlEsc(data.lastDate));
-  }
   zip.file(path, xml);
-  zip.file("Contents/header.xml", header.xml);
   return packageHwpx(zip);
 }
 
-// (안전) 단기근로자 지급신청서 — 사용자 완성본(마스터) 기준
-// 박힌값: 노벨/증안/초등 저학년/산출("20,000원 X 1학급 X 4차시"·"(1일 한도 60,000원)")/금액 240,000/날짜
-// data: { program, school, eduTarget, payoutLines, amount, lastDate }
+// (안전) 단기근로자 지급신청서 (3-6) — 사용자 완성본(마스터) 기준
+// 산출내역은 최신 양식 예시처럼 날짜별 한 줄: "(오후) 12/5 20,000원 X 1학급 X 3차시".
+// 반(班)별 1일 한도 60,000원(=3차시) → 날짜별 인정 차시 = min(일별 차시, 3). 줄의 식을 다 더한 값 = 지급액.
+// data: { program, school, eduTarget, payoutLines, amount, lastDate, name | safetyManager, affiliation, sessions }
+//  sessions가 없으면 payoutLines("(오후) 12/5~12/6 20,000원 X 1학급 X 4차시 (1일 한도 60,000원)")의
+//  기간을 날짜별로 펼친다(연속 일정 가정. 펼친 합이 amount와 다르면 펼치지 않고 그대로 쓴다).
+const SAFE_UNIT_H = 20000, SAFE_CAP_H = 60000;
 export async function buildSafetyPayHwpx(templateBuf, data) {
   const zip = await JSZip.loadAsync(templateBuf);
   const path = "Contents/section0.xml";
   let xml = await zip.file(path).async("string");
 
+  let ss = paySessions(data);
+  const fromLines = !ss;
+  if (!ss) {
+    const parsed = [];
+    for (const ln of (data.payoutLines || [])) {
+      const m = ln.match(/\((오전|오후)\)\s*(\d+)\/(\d+)(?:~(?:(\d+)\/)?(\d+))?\s+[\d,]+원 X 1학급 X ([\d.]+)차시/);
+      if (!m) { parsed.length = 0; break; }
+      const f = { m: +m[2], d: +m[3] };
+      const l = m[5] ? { m: +(m[4] || m[2]), d: +m[5] } : f;
+      const dates = [];
+      for (let o = f, k = 0; k < 31; k++) {
+        dates.push(o);
+        if (o.m === l.m && o.d === l.d) break;
+        const dt = new Date(2026, o.m - 1, o.d + 1);
+        o = { m: dt.getMonth() + 1, d: dt.getDate() };
+      }
+      parsed.push({ ampm: m[1], dates, chasi: +m[6] * dates.length });
+    }
+    ss = parsed.length ? parsed : null;
+  }
+
+  let lines = data.payoutLines || [], amount = data.amount;
+  if (ss) {
+    const capCh = SAFE_CAP_H / SAFE_UNIT_H;
+    let total = 0;
+    const out = [];
+    for (const s of ss) {
+      const ch = Math.min(s.chasi / s.dates.length, capCh);
+      for (const d of s.dates) {
+        total += ch * SAFE_UNIT_H;
+        out.push(`(${s.ampm}) ${d.m}/${d.d} ${SAFE_UNIT_H.toLocaleString()}원 X 1학급 X ${numTxt(ch)}차시`);
+      }
+    }
+    const given = data.amount ? +String(data.amount).replace(/,/g, "") : null;
+    if (!fromLines || given == null || given === Math.round(total)) {
+      lines = out;
+      amount = Math.round(total).toLocaleString();
+    }
+  }
+
+  xml = fixPayCommon(xml);
   if (data.program) xml = replaceAllText(xml, M.program, data.program);
   if (data.school) xml = replaceAllText(xml, M.school, data.school);
   if (data.eduTarget) xml = replaceAllText(xml, " 초등 저학년", " " + data.eduTarget);
-  // 일별차시: payoutLines의 "X 1학급 X N차시"에서 추출 → 완성본 "20,000원 X 1학급 X 4차시" 갱신
-  const lines = data.payoutLines || [];
-  const cm = (lines[0] || "").match(/X 1학급 X ([\d.]+)차시/);
-  if (cm && cm[1] !== "4") xml = replaceAllText(xml, "20,000원 X 1학급 X 4차시", `20,000원 X 1학급 X ${cm[1]}차시`);
-  if (data.amount) xml = replaceAllText(xml, " 240,000원", " " + data.amount + "원");
+  xml = setCellLines(xml, "산출내역", lines.map(t => t.trim()), `(1일 한도 ${SAFE_CAP_H.toLocaleString()}원)`);
+  if (amount) xml = replaceAllText(xml, " 240,000원", " " + amount + "원");
   if (data.lastDate) xml = replaceAllText(xml, `2026년 ${M.d2.m}월 ${M.d2.d}일`, data.lastDate);
+  xml = fillPayPerson(xml, data.name || data.safetyManager || "", data.affiliation || "");
 
   zip.file(path, xml);
   return packageHwpx(zip);
@@ -861,7 +946,9 @@ export async function buildSafetyContractHwpx(templateBuf, data) {
   if (data.school) repl("ㅇㅇ학교", () => xmlEsc(data.school));
   if (data.firstDate && data.lastDate) {
     const f = data.firstDate, l = data.lastDate;
-    repl("2026년 ㅇ월 ㅇ일, 2026년 ㅇ월 ㅇ일", () => xmlEsc(`2026년 ${f.m}월 ${f.d}일, 2026년 ${l.m}월 ${l.d}일`));
+    // 양식 메모 "캠프 기간을 빠짐없이 작성" → 근로일 전부(3일 이상이면 가운데 날도)
+    const all = list.length ? list : [f, l];
+    repl("2026년 ㅇ월 ㅇ일, 2026년 ㅇ월 ㅇ일", () => xmlEsc(all.map(d => `2026년 ${d.m}월 ${d.d}일`).join(", ")));
   }
   // 근로일자(요일): 4개 날짜 컬럼
   let di = 0;
@@ -873,7 +960,9 @@ export async function buildSafetyContractHwpx(templateBuf, data) {
   repl("14:20~15:40", () => { const d = list[pi++]; return d && d.pmStart ? xmlEsc(`${d.pmStart}~${d.pmEnd}`) : ""; });
   // 임금 / 계약 체결월
   if (data.amount) repl("N00,000", () => xmlEsc(data.amount));
-  if (data.month) repl("2026년 월 1일", () => xmlEsc(`2026년 ${data.month}월 1일`));
+  // 계약일 = 캠프 시작 달의 1일(양식 메모 "캠프 해당 월의 1일로 고정"). 이 run은 메모 필드(ctrl)가
+  // <hp:t> 앞에 붙어 run 단위 치환이 안 걸리므로 텍스트 노드를 직접 바꾼다.
+  if (data.month) xml = xml.split("<hp:t>2026년 월 1일</hp:t>").join(`<hp:t>2026년 ${xmlEsc(data.month)}월 1일</hp:t>`);
 
   zip.file(path, xml);
   zip.file("Contents/header.xml", header.xml);
