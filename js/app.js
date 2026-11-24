@@ -2,7 +2,7 @@ import { RegionResolver, SIDO_LIST } from "./region.js?v=32";
 import {
   parseRoster, toRegistrationRows, buildRegistrationXlsx,
   defaultChasi, defaultChasiForProgram, fmtDate, parseSchedule, programCore
-} from "./convert.js?v=32";
+} from "./convert.js?v=33";
 import { buildReceiptHwpx, buildEquipmentLedgerHwpx, buildReportHwpx, buildSafetyLogHwpx, buildChecklistHwpx, buildPayApplicationHwpx, buildSafetyPayHwpx, buildSafetyContractHwpx, buildMulticulturalConfirmHwpx, buildCaseBookHwpx, buildSafetyPledgeHwpx } from "./hwpx.js?v=32";
 import { buildGachonEquipHwpx, buildGachonMealHwpx, buildGachonMaterialHwpx, buildGachonReportHwpx, buildGachonLectureHwpx, buildGachonWorkHwpx, buildGachonBanner, buildGachonSafetyPledgeHwpx, buildGachonSafetyReportHwpx, buildGachonChecklistHwpx } from "./hwpx_gachon.js?v=34";
 import { NEIS_API_KEY } from "./config.js?v=31";
@@ -693,7 +693,7 @@ async function onConvert() {
   const noGender = lastClasses.reduce((n, c) => n + (c.rows || []).filter(r => !r["성별"]).length, 0);
   setStatus("convertStatus",
     `변환 완료: ${lastClasses.length}개 클래스 / 학생 ${total}명 — 아래에서 서류를 내려받으세요.` +
-    (noGender ? ` ※ 등록양식 성별 ${noGender}명 빈칸: 명단에 '성별' 열(남/여)을 넣고 다시 올리거나, 내려받은 등록양식에서 직접 채우세요.` : ""),
+    (noGender ? ` ※ 등록양식 성별 ${noGender}명 빈칸: 내려받은 등록양식에서 직접 채우세요.` : " (등록양식 성별은 명단에 성별 열이 없으면 이름으로 자동 입력)"),
     noGender ? "warn" : "ok");
 }
 

@@ -236,6 +236,28 @@ function parseTeachers(rows) {
 
 // ---------- 명단 파싱 ----------
 // 반환: { sheet, school, program, courseLevel, students, teachers, mainTeacher }
+// 성별 자동: 명단에 성별 열이 없을 때 한국 이름(이름 부분)의 흔한 패턴으로 남/여를 정한다.
+// 개인정보 수집을 줄이려는 사용자 요청(연락처·이메일·반과 같은 가상값 방식). 실제 성별과 다를 수 있다.
+const NAME_M = new Set(["민준", "서준", "도윤", "예준", "시우", "하준", "주원", "지호", "지후", "준우", "준서", "도현", "건우", "현우", "우진", "선우", "민재", "유준", "은우", "정우", "승우", "승현", "시윤", "준혁", "은찬", "지환", "승민", "지훈", "민성", "준영", "이준", "윤우", "수호", "로운", "태윤", "도하", "시후", "유찬", "우주", "준호", "민우", "성민", "현준", "동현", "지성", "재윤", "은호", "준수", "태민", "승준", "예성", "한결", "지한", "이현", "재민", "민혁", "현서", "성현", "상현", "동하", "태현", "재원", "시원", "진우", "재현", "민호", "영훈", "동건", "태양", "건", "율", "찬", "혁", "훈", "결", "준", "호", "원", "우", "범", "석"]);
+const NAME_F = new Set(["서연", "서윤", "지우", "서현", "민서", "하은", "하윤", "윤서", "지유", "지민", "채원", "수아", "지아", "지윤", "은서", "다은", "예은", "수빈", "소율", "예린", "지안", "예원", "소윤", "시은", "하린", "유나", "채은", "아린", "서아", "가은", "윤아", "서영", "유진", "민지", "예나", "수연", "지원", "아윤", "시아", "서은", "나윤", "다인", "하율", "이서", "지율", "채윤", "예서", "은채", "수민", "지은", "혜원", "소연", "다현", "나은", "유주", "주아", "하연", "지현", "민주", "수현", "은비", "다연", "연서", "서하", "시연", "예지", "하은", "나연", "수진", "은지", "소은", "아인", "리아", "세아", "유하", "채아", "하람", "소희", "지수", "미나", "은", "린", "아", "희"]);
+const SUR2 = ["남궁", "황보", "제갈", "선우", "독고", "서문", "사공", "동방", "어금", "망절"];
+const LAST_M = "준호훈혁석철성규용환찬결건범태원우민현진재수형식";
+const LAST_F = "아희연린나라미경혜리비은영서윤주채인지";
+export function guessGender(fullName) {
+  const n = (fullName || "").toString().replace(/\s/g, "");
+  if (n.length < 2) return "";
+  const given = SUR2.some(s => n.startsWith(s)) && n.length > 2 ? n.slice(2) : n.slice(1);
+  if (NAME_M.has(given)) return "남";
+  if (NAME_F.has(given)) return "여";
+  const last = given.slice(-1);
+  const m = LAST_M.includes(last), f = LAST_F.includes(last);
+  if (m && !f) return "남";
+  if (f && !m) return "여";
+  // 애매하면 이름 글자로 정해지는 고정값(같은 이름은 늘 같은 결과)
+  let h = 0; for (const ch of given) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 2 ? "남" : "여";
+}
+
 // 성별 표기 통일: 남/여만 허용(등록양식 드롭다운). 모르면 빈칸 — 값을 지어 넣지 않는다.
 export function genderText(v) {
   const s = (v ?? "").toString().trim();
@@ -364,7 +386,7 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
         "학년": gradeText(s.grade, level),
         "반": randomClass(),
         "일반학생 여부": generalStudentFlag(s.memo, social),
-        "성별": s.gender || ""
+        "성별": s.gender || guessGender(s.name)
       });
     }
     classes.push({
