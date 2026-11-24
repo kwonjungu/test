@@ -236,6 +236,14 @@ function parseTeachers(rows) {
 
 // ---------- 명단 파싱 ----------
 // 반환: { sheet, school, program, courseLevel, students, teachers, mainTeacher }
+// 성별 표기 통일: 남/여만 허용(등록양식 드롭다운). 모르면 빈칸 — 값을 지어 넣지 않는다.
+export function genderText(v) {
+  const s = (v ?? "").toString().trim();
+  if (/^(남|남자|남성|M|male)$/i.test(s)) return "남";
+  if (/^(여|여자|여성|F|female)$/i.test(s)) return "여";
+  return "";
+}
+
 export function parseRoster(workbook) {
   const result = [];
   for (const sheetName of workbook.SheetNames) {
@@ -268,6 +276,7 @@ export function parseRoster(workbook) {
         col.grade = r.indexOf("학년");
         col.start = r.findIndex(x => x.startsWith("교육시작"));
         col.end = r.findIndex(x => x.startsWith("교육종료"));
+        col.gender = r.findIndex(x => /^성\s*별/.test(x));   // 선택 열: 있으면 등록양식 성별에 사용
         col.memo = r.indexOf("메모(특이사항)");
         if (col.memo < 0) col.memo = r.findIndex(x => x.startsWith("메모"));
         break;
@@ -291,6 +300,7 @@ export function parseRoster(workbook) {
         phone: (r[col.phone] || "").toString().trim(),
         school: (r[col.school] || school || "").toString().trim(),
         grade: (r[col.grade] || "").toString().trim(),
+        gender: genderText(col.gender >= 0 ? r[col.gender] : ""),
         memo: (col.memo >= 0 ? (r[col.memo] || "") : "").toString().trim()
       });
     }
@@ -353,7 +363,8 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
         "학교": s.school,
         "학년": gradeText(s.grade, level),
         "반": randomClass(),
-        "일반학생 여부": generalStudentFlag(s.memo, social)
+        "일반학생 여부": generalStudentFlag(s.memo, social),
+        "성별": s.gender || ""
       });
     }
     classes.push({
@@ -368,9 +379,9 @@ export async function toRegistrationRows(blocks, regionResolver, opts = {}) {
 }
 
 // ---------- 등록양식 xlsx 생성 (템플릿 채우기, 텍스트 서식 보존) ----------
-const COLS = ["학생명", "연락처", "이메일", "지역", "학교", "학년", "반", "일반학생 여부"];
-const COL_LETTER = ["A", "B", "C", "D", "E", "F", "G", "H"];
-const COL_STYLE  = { A: "2", B: "3", C: "5", D: "2", E: "2", F: "2", G: "2", H: "2" }; // 템플릿 텍스트 서식
+const COLS = ["학생명", "연락처", "이메일", "지역", "학교", "학년", "반", "일반학생 여부", "성별"];
+const COL_LETTER = ["A", "B", "C", "D", "E", "F", "G", "H", "I"];
+const COL_STYLE  = { A: "2", B: "3", C: "5", D: "2", E: "2", F: "2", G: "2", H: "2", I: "11" }; // 템플릿 텍스트 서식
 
 function xmlEsc(s) {
   return (s ?? "").toString()

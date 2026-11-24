@@ -4,7 +4,7 @@ export const SIDO_LIST = [
   "서울특별시", "인천광역시", "경기도", "대전광역시", "세종특별자치시",
   "강원특별자치도", "충청북도", "충청남도", "부산광역시", "대구광역시",
   "울산광역시", "경상북도", "경상남도", "광주광역시", "전북특별자치도",
-  "전라남도", "제주특별자치도"
+  "전남광주통합특별시", "제주특별자치도"
 ];
 
 // 교육청명 → 시·도(드롭다운 표기) 정규화
@@ -18,6 +18,7 @@ export function officeToSido(officeName) {
     "강원도": "강원특별자치도",
     "전라북도": "전북특별자치도",
     "제주도": "제주특별자치도",
+    "전라남도": "전남광주통합특별시",   // 2026 등록양식 지역 목록 변경
     "제주특별자치도교육청": "제주특별자치도"
   };
   if (fix[s]) return fix[s];
@@ -86,10 +87,10 @@ export class RegionResolver {
   async resolve(school) {
     if (!school) return { sido: "", source: "none" };
     const name = school.trim();
-    if (this.map[name]) return { sido: this.map[name], source: "bundle" };
+    if (this.map[name]) return { sido: officeToSido(this.map[name]), source: "bundle" };
 
     // NEIS 조회 (키 없이도 동작. 키가 있으면 호출 한도가 늘어남)
-    if (this.cache[name]) return { sido: this.cache[name], source: "neis(cache)" };
+    if (this.cache[name]) return { sido: officeToSido(this.cache[name]), source: "neis(cache)" };
     try {
       const keyParam = this.neisKey ? `KEY=${encodeURIComponent(this.neisKey)}&` : "";
       const url = `https://open.neis.go.kr/hub/schoolInfo?${keyParam}Type=json&pIndex=1&pSize=5&SCHUL_NM=${encodeURIComponent(name)}`;
